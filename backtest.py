@@ -5,7 +5,8 @@ import matplotlib.dates as mdates
 from dotenv import load_dotenv
 import polars as pl
 import os
-
+import numpy as np
+from weight import gen_weight
 
 def load_data(tickers, timespan, from_time, to_time):
     """
@@ -38,14 +39,12 @@ def load_data(tickers, timespan, from_time, to_time):
             histories[ticker] = df
     return histories
 
-
 def backtest(history, weights, tickers):
     """
     Backtests the given weights on the given stock data.
-    Returns a DataFrame with the cumulative return and daily return.
+    Returns a DataFrame with the cumulative return, daily return, and weights.
     """
     backtest = weights.lazy()
-
     combined_history = None
     for ticker in tickers:
         df = (
@@ -85,6 +84,12 @@ def backtest(history, weights, tickers):
         right_on="rebalance_date",
         strategy="backward",
     )
+
+    # Store weights for each ticker at each timestamp
+    for ticker in tickers:
+        backtest = backtest.with_columns(
+            pl.col(ticker).forward_fill().alias(f"{ticker}_weight")
+        )
 
     # cumulative return within each rebalance period
     for ticker in tickers:
@@ -127,37 +132,89 @@ def backtest(history, weights, tickers):
             pl.col(f"{ticker}_return").cum_prod().alias(f"{ticker}_cumulative_return")
             for ticker in tickers
         ]
-    ).with_columns(
+    ).with_columns([
+        *[pl.col(f"{ticker}_weight").alias(ticker) for ticker in tickers],
         pl.col("period_total_weighted")
         .mul(pl.col("previous_period_last"))
         .alias("overall_cumulative_return"),
-    )
-
+    ])
+    
     return backtest.collect()
 
 
+def calculate_sharpe_ratio(returns, risk_free_rate=0.02):
+    """
+    Calculate Sharpe ratio for the entire period using pct_change
+    """
+    # Calculate daily returns from cumulative returns
+    daily_returns = returns.pct_change().drop_nulls()
+    
+    # Convert annual risk-free rate to daily
+    daily_rf_rate = (1 + risk_free_rate) ** (1/252) - 1
+    
+    # Calculate excess returns
+    excess_returns = daily_returns - daily_rf_rate
+    
+    # Calculate annualized Sharpe ratio
+    annual_factor = 252
+    sharpe_ratio = (
+        excess_returns.mean() * annual_factor / 
+        (excess_returns.std() * (annual_factor ** 0.5))
+    )
+    
+    return sharpe_ratio
+
 def plot_backtest(backtest, tickers=[]):
-    """
-    Plots the cumulative return of the backtest.
-    """
-    plt.plot(
-        backtest["timestamp"], backtest["overall_cumulative_return"], label="Portfolio"
+    # Create figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
+    
+    # Calculate total return and Sharpe ratio
+    total_return = backtest["overall_cumulative_return"].last()
+    sharpe = calculate_sharpe_ratio(backtest["overall_cumulative_return"])
+    
+    # Plot cumulative returns
+    ax1.plot(
+        backtest["timestamp"], 
+        backtest["overall_cumulative_return"], 
+        label="Portfolio", 
+        color='blue'
     )
     for ticker in tickers:
-        plt.plot(
+        ax1.plot(
             backtest["timestamp"],
             backtest[f"{ticker}_cumulative_return"],
             label=ticker,
         )
-    plt.legend()
-    plt.title("Backtest Returns")
-    plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
-    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y\n%b"))
-    plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=3))
-    plt.gca().xaxis.set_minor_locator(mdates.MonthLocator())
-    plt.gca().grid(visible=True)
-    plt.ylabel("Cumulative Return")
-    plt.xlabel("Date")
+    
+    # Add performance metrics as text (moved to upper right)
+    metrics_text = f'Total Return: {total_return:.2%}\nSharpe Ratio: {sharpe:.2f}'
+    ax1.text(0.98, 0.98, metrics_text,
+             transform=ax1.transAxes,
+             bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray'),
+             verticalalignment='top',
+             horizontalalignment='right',  # Right align text
+             fontsize=10)
+    
+    # Rest of the plotting code remains the same
+    ax1.legend(loc='upper left')  # Legend stays in upper left
+    ax1.set_title("Backtest Returns")
+    ax1.yaxis.set_major_formatter(PercentFormatter(1))
+    ax1.set_ylabel("Cumulative Return")
+    
+    # Plot weights on bottom subplot
+    for ticker in tickers:
+        ax2.plot(
+            backtest["timestamp"], 
+            backtest[ticker],
+            label=ticker
+        )
+    ax2.set_title("Asset Weights")
+    ax2.set_ylabel("Weight")
+    ax2.set_xlabel("Date")
+    ax2.grid(visible=True)
+    ax2.legend()
+    
+    plt.tight_layout()
     plt.show()
 
 
@@ -168,23 +225,11 @@ if __name__ == "__main__":
         raise ValueError("POLYGON_API_KEY is not set in environment variables")
 
     client = RESTClient(api_key)
-    stock1 = "NVDA"
-    stock2 = "UVXY"
-    tickers = [stock1, stock2]
+    weights,tickers=gen_weight()
     history = load_data(
         tickers, timespan="day", from_time="2024-01-01", to_time="2024-12-06"
-    )
-    # make weights dataframe with 0.5 for each stock and matching timestamps of history
-    weights = pl.DataFrame(
-        {
-            stock1: [0.9, 0],
-            stock2: [0.1, 1],
-            "timestamp": pl.Series(
-                ["01/01/2024 17:00:00.000", "06/06/2024 17:00:00.000"]
-            ).str.strptime(pl.Datetime, "%d/%m/%Y %H:%M:%S%.3f"),
-        }
     )
     backtest_result = backtest(history, weights, tickers)
 
     print(f"Total return: {backtest_result['overall_cumulative_return'].last():.02%}")
-    plot_backtest(backtest_result)
+    plot_backtest(backtest_result, tickers)
