@@ -1,2 +1,4 @@
 .env
-/history_cache
+.DS_Store
+__pycache__
+history_cache
