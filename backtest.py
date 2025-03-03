@@ -6,7 +6,12 @@ from dotenv import load_dotenv
 import polars as pl
 import os
 import numpy as np
-from weight import gen_weight
+from utils import sample_weight
+from samplealpha import sampleAlpha
+from datetime import datetime, timedelta
+from utils import validate_weights
+from time import time
+from utils import timeit
 
 def load_data(tickers, timespan, from_time, to_time):
     """
@@ -39,108 +44,81 @@ def load_data(tickers, timespan, from_time, to_time):
             histories[ticker] = df
     return histories
 
+@timeit
 def backtest(history, weights, tickers):
     """
-    Backtests the given weights on the given stock data.
-    Returns a DataFrame with the cumulative return, daily return, and weights.
+    Optimized backtesting function that handles historical data processing
+    and weight calculations
     """
-    backtest = weights.lazy()
-    combined_history = None
-    for ticker in tickers:
-        df = (
+    # Pre-process historical data in one pass with unique timestamp
+    first_ticker = tickers[0]
+    base_df = (
+        history[first_ticker]
+        .lazy()
+        .select([
+            pl.from_epoch(pl.col("timestamp"), time_unit="ms")
+            .cast(pl.Datetime("us"))
+            .alias("timestamp"),
+            pl.col("close")
+            .pct_change()
+            .add(1)
+            .fill_null(1)
+            .alias(f"{first_ticker}_return")
+        ])
+    )
+
+    # Add returns for other tickers
+    for ticker in tickers[1:]:
+        base_df = base_df.join(
             history[ticker]
             .lazy()
-            .select(
-                [
-                    pl.from_epoch(pl.col("timestamp"), time_unit="ms").alias(
-                        "timestamp"
-                    ),
-                    pl.col("close").alias(f"{ticker}_close"),
-                    pl.col("close")
-                    .pct_change()
-                    .add(1)
-                    .fill_null(1)
-                    .alias(f"{ticker}_return"),
-                ]
-            )
+            .select([
+                pl.from_epoch(pl.col("timestamp"), time_unit="ms")
+                .cast(pl.Datetime("us"))
+                .alias("timestamp"),
+                pl.col("close")
+                .pct_change()
+                .add(1)
+                .fill_null(1)
+                .alias(f"{ticker}_return")
+            ]),
+            on="timestamp",
+            how="outer"
         )
-        if combined_history is None:
-            combined_history = df
-        else:
-            combined_history = combined_history.join(df, on="timestamp", how="right")
 
-    weights_lazy = (
-        weights.lazy()
-        .sort("timestamp")
-        .select(
-            pl.col("timestamp").alias("rebalance_date"),
-            *[pl.col(ticker) for ticker in tickers],
+    # Join weights more efficiently
+    backtest = (
+        base_df
+        .join_asof(
+            weights.lazy().sort("timestamp"),
+            left_on="timestamp",
+            right_on="timestamp",
+            strategy="backward"
         )
-    )
-    # Join weights with rebalance dates
-    backtest = combined_history.join_asof(
-        weights_lazy,
-        left_on="timestamp",
-        right_on="rebalance_date",
-        strategy="backward",
-    )
-
-    # Store weights for each ticker at each timestamp
-    for ticker in tickers:
-        backtest = backtest.with_columns(
+        .with_columns([
             pl.col(ticker).forward_fill().alias(f"{ticker}_weight")
-        )
-
-    # cumulative return within each rebalance period
-    for ticker in tickers:
-        backtest = backtest.with_columns(
-            pl.col(f"{ticker}_return")
-            .cum_prod()
-            .over("rebalance_date")
-            .alias(f"{ticker}_period_return")
-        )
-
-    backtest = backtest.with_columns(
-        pl.sum_horizontal(
-            [
-                pl.col(f"{ticker}_period_return")
-                .mul(pl.col(ticker))
-                .alias(f"{ticker}_weighted_return")
-                for ticker in tickers
-            ]
-        ).alias("period_total_weighted")
-    )
-
-    # previous period's last value
-    aggregated_period = (
-        backtest.group_by("rebalance_date")
-        .agg(pl.col("period_total_weighted").last())
-        .sort("rebalance_date")
-        .with_columns(
-            pl.col("period_total_weighted")
-            .shift()
-            .fill_null(1)
-            .cum_prod()
-            .alias("previous_period_last")
-        )
-    )
-    backtest = backtest.join(aggregated_period, on="rebalance_date", how="right")
-
-    # cumulative returns
-    backtest = backtest.with_columns(
-        [
-            pl.col(f"{ticker}_return").cum_prod().alias(f"{ticker}_cumulative_return")
             for ticker in tickers
-        ]
-    ).with_columns([
-        *[pl.col(f"{ticker}_weight").alias(ticker) for ticker in tickers],
-        pl.col("period_total_weighted")
-        .mul(pl.col("previous_period_last"))
-        .alias("overall_cumulative_return"),
-    ])
-    
-    return backtest.collect()
+        ])
+    )
 
+    # Calculate returns in one pass
+    backtest = backtest.with_columns([
+        pl.col(f"{ticker}_return")
+        .cum_prod()
+        .over("timestamp")
+        .alias(f"{ticker}_cumulative_return")
+        for ticker in tickers
+    ])
+
+    # Calculate portfolio return
+    backtest = backtest.with_columns(
+        pl.sum_horizontal([
+            pl.col(f"{ticker}_cumulative_return").mul(pl.col(f"{ticker}_weight"))
+            for ticker in tickers
+        ]).alias("overall_cumulative_return")
+    )
+
+    return backtest.collect()
 
 def calculate_sharpe_ratio(returns, risk_free_rate=0.02):
     """
@@ -217,19 +195,50 @@ def plot_backtest(backtest, tickers=[]):
     plt.tight_layout()
     plt.show()
 
+@timeit
+def load_weight(alpha):
+    """
+    Creates a weight DataFrame by iterating through time and updating weights
+    """
+    resolution_map = {
+        "day": timedelta(days=1),
+        "hour": timedelta(hours=1),
+        "minute": timedelta(minutes=1)
+    }
+    freq = resolution_map.get(alpha.resolution, timedelta(days=1))
 
-if __name__ == "__main__":
-    load_dotenv()
-    api_key = os.getenv("POLYGON_API_KEY")
-    if api_key is None:
-        raise ValueError("POLYGON_API_KEY is not set in environment variables")
+    # Create timestamps as Python list more efficiently
+    start_date = datetime.strptime(alpha.start, "%Y-%m-%d")
+    end_date = datetime.strptime(alpha.end, "%Y-%m-%d")
+    num_days = (end_date - start_date).days + 1
+    timestamps_list = [start_date + freq * i for i in range(num_days)]
 
-    client = RESTClient(api_key)
-    weights,tickers=gen_weight()
-    history = load_data(
-        tickers, timespan="day", from_time="2024-01-01", to_time="2024-12-06"
-    )
-    backtest_result = backtest(history, weights, tickers)
+    weights_data = {
+        "timestamp": timestamps_list,
+        **{ticker: [0.0] * len(timestamps_list) for ticker in alpha.get_ticker()}
+    }
+    timestamps = pl.DataFrame(weights_data).with_columns([
+        pl.col("timestamp").cast(pl.Datetime("us"))
+    ])
 
-    print(f"Total return: {backtest_result['overall_cumulative_return'].last():.02%}")
-    plot_backtest(backtest_result, tickers)
+    tickers = alpha.get_ticker()
+    weights_updates = []
+    
+    for ts in timestamps["timestamp"]:
+        alpha.set_time(ts)
+        current_weights = alpha.update()
+        weights_updates.append(current_weights)
+
+    for i, ticker in enumerate(tickers):
+        timestamps = timestamps.with_columns(
+            pl.when(pl.col("timestamp").is_in(timestamps["timestamp"]))
+            .then(pl.Series([w[i] for w in weights_updates]))
+            .otherwise(pl.col(ticker))
+            .alias(ticker)
+        )
+
+    # Validate weights before returning
+    validate_weights(timestamps, tickers)
+        
+    return timestamps, tickers
+
