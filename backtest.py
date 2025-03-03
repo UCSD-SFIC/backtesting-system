@@ -231,13 +231,10 @@ def load_weight(alpha):
 
     for i, ticker in enumerate(tickers):
         timestamps = timestamps.with_columns(
-            pl.when(pl.col("timestamp").is_in(timestamps["timestamp"]))
-            .then(pl.Series([w[i] for w in weights_updates]))
-            .otherwise(pl.col(ticker))
+            pl.Series([w[i] for w in weights_updates])
             .alias(ticker)
         )
 
-    # Validate weights before returning
     validate_weights(timestamps, tickers)
         
     return timestamps, tickers
