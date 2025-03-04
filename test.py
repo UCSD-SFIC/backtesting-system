@@ -49,8 +49,19 @@ def test_backtest():
     tickers = ["A", "B"]
     result = backtest.backtest(history, weights, tickers)
 
+    print("\nDebugging information:")
+    print("Result columns:", result.columns)
+    print("Result shape:", result.shape)
+    print("Timestamps:", result["timestamp"].to_list())
+    if "overall_cumulative_return" in result.columns:
+        print("Returns:", result["overall_cumulative_return"].to_list())
+    else:
+        print("Missing overall_cumulative_return column")
+        print("Available columns:", result.columns)
+
     day_1 = 1.0
     day_2 = a_weights[0] * a_prices[1] + b_weights[0] * b_prices[1]
+
     day_2_to_3 = (
         a_weights[1] * a_prices[2] / a_prices[1]
         + b_weights[1] * b_prices[2] / b_prices[1]

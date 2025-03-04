@@ -47,79 +47,94 @@ def load_data(tickers, timespan, from_time, to_time):
 @timeit
 def backtest(history, weights, tickers):
     """
-    Optimized backtesting function that handles historical data processing
-    and weight calculations
+    Backtests the given weights on the given stock data.
+    Returns a DataFrame with the cumulative return and daily return.
     """
-    # Pre-process historical data in one pass with unique timestamp
-    first_ticker = tickers[0]
-    base_df = (
-        history[first_ticker]
-        .lazy()
-        .select([
-            pl.from_epoch(pl.col("timestamp"), time_unit="ms")
-            .cast(pl.Datetime("us"))
-            .alias("timestamp"),
-            pl.col("close")
-            .pct_change()
-            .add(1)
-            .fill_null(1)
-            .alias(f"{first_ticker}_return")
-        ])
-    )
-
-    # Add returns for other tickers
-    for ticker in tickers[1:]:
-        base_df = base_df.join(
+    combined_history = None
+    for ticker in tickers:
+        df = (
             history[ticker]
             .lazy()
             .select([
+                # Convert millisecond epoch to datetime
                 pl.from_epoch(pl.col("timestamp"), time_unit="ms")
                 .cast(pl.Datetime("us"))
                 .alias("timestamp"),
+                pl.col("close").alias(f"{ticker}_close"),
                 pl.col("close")
                 .pct_change()
                 .add(1)
                 .fill_null(1)
-                .alias(f"{ticker}_return")
-            ]),
-            on="timestamp",
-            how="outer"
+                .alias(f"{ticker}_return"),
+            ])
         )
+        if combined_history is None:
+            combined_history = df
+        else:
+            combined_history = combined_history.join(df, on="timestamp", how="full")
 
-    # Join weights and calculate weighted returns
-    backtest = (
-        base_df
-        .join_asof(
-            weights.lazy().sort("timestamp"),
-            left_on="timestamp",
-            right_on="timestamp",
-            strategy="backward"
+    weights_lazy = (
+        weights.lazy()
+        .sort("timestamp")
+        .select(
+            pl.col("timestamp").alias("rebalance_date"),
+            *[pl.col(ticker) for ticker in tickers],
         )
     )
 
-    # Calculate individual asset cumulative returns
-    backtest = backtest.with_columns([
-        pl.col(f"{ticker}_return")
-        .cum_prod()
-        .alias(f"{ticker}_cumulative_return")
-        for ticker in tickers
-    ])
+    # Join with properly formatted timestamps
+    backtest = combined_history.join_asof(
+        weights_lazy,
+        left_on="timestamp",
+        right_on="rebalance_date",
+        strategy="backward",
+    )
 
-    # Calculate weighted returns for portfolio
-    backtest = backtest.with_columns([
-        (pl.col(f"{ticker}_return").mul(pl.col(ticker)))
-        .alias(f"{ticker}_weighted_return")
-        for ticker in tickers
-    ])
+    # cumulative return within each rebalance period
+    for ticker in tickers:
+        backtest = backtest.with_columns(
+            pl.col(f"{ticker}_return")
+            .cum_prod()
+            .over("rebalance_date")
+            .alias(f"{ticker}_period_return")
+        )
 
-    # Calculate overall portfolio return
     backtest = backtest.with_columns(
-        pl.sum_horizontal([
-            pl.col(f"{ticker}_weighted_return")
+        pl.sum_horizontal(
+            [
+                pl.col(f"{ticker}_period_return")
+                .mul(pl.col(ticker))
+                .alias(f"{ticker}_weighted_return")
+                for ticker in tickers
+            ]
+        ).alias("period_total_weighted")
+    )
+
+    # previous period's last value
+    aggregated_period = (
+        backtest.group_by("rebalance_date")
+        .agg(pl.col("period_total_weighted").last())
+        .sort("rebalance_date")
+        .with_columns(
+            pl.col("period_total_weighted")
+            .shift()
+            .fill_null(1)
+            .cum_prod()
+            .alias("previous_period_last")
+        )
+    )
+    backtest = backtest.join(aggregated_period, on="rebalance_date", how="right")
+
+    # cumulative returns
+    backtest = backtest.with_columns(
+        [
+            pl.col(f"{ticker}_return").cum_prod().alias(f"{ticker}_cumulative_return")
             for ticker in tickers
-        ])
-        .cum_prod()
-        .alias("overall_cumulative_return")
+        ]
+    ).with_columns(
+        pl.col("period_total_weighted")
+        .mul(pl.col("previous_period_last"))
+        .alias("overall_cumulative_return"),
     )
 
     return backtest.collect()
