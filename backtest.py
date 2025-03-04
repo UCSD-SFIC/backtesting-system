@@ -86,7 +86,7 @@ def backtest(history, weights, tickers):
             how="outer"
         )
 
-    # Join weights more efficiently
+    # Join weights and calculate weighted returns
     backtest = (
         base_df
         .join_asof(
@@ -95,27 +95,31 @@ def backtest(history, weights, tickers):
             right_on="timestamp",
             strategy="backward"
         )
-        .with_columns([
-            pl.col(ticker).forward_fill().alias(f"{ticker}_weight")
-            for ticker in tickers
-        ])
     )
 
-    # Calculate returns in one pass
+    # Calculate individual asset cumulative returns
     backtest = backtest.with_columns([
         pl.col(f"{ticker}_return")
         .cum_prod()
-        .over("timestamp")
         .alias(f"{ticker}_cumulative_return")
         for ticker in tickers
     ])
 
-    # Calculate portfolio return
+    # Calculate weighted returns for portfolio
+    backtest = backtest.with_columns([
+        (pl.col(f"{ticker}_return").mul(pl.col(ticker)))
+        .alias(f"{ticker}_weighted_return")
+        for ticker in tickers
+    ])
+
+    # Calculate overall portfolio return
     backtest = backtest.with_columns(
         pl.sum_horizontal([
-            pl.col(f"{ticker}_cumulative_return").mul(pl.col(f"{ticker}_weight"))
+            pl.col(f"{ticker}_weighted_return")
             for ticker in tickers
-        ]).alias("overall_cumulative_return")
+        ])
+        .cum_prod()
+        .alias("overall_cumulative_return")
     )
 
     return backtest.collect()

@@ -22,10 +22,4 @@ class sampleAlpha():
         self.current_time=time
 
     def update(self):
-        # Generate random numbers > 0 for each ticker
-        random_weights = np.random.random(len(self.ticker))
-        
-        # Normalize to make sum = 1
-        normalized_weights = random_weights / np.sum(random_weights)
-        
-        return normalized_weights.tolist()
+        return self.weight
