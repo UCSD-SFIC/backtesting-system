@@ -1,21 +1,14 @@
-from polygon import RESTClient
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
-import matplotlib.dates as mdates
-from dotenv import load_dotenv
 import polars as pl
 import os
-import numpy as np
-from utils import sample_weight
-from samplealpha import sampleAlpha
-from datetime import datetime, timedelta
 from utils import validate_weights
-from time import time
 from utils import timeit
 
-def load_data(tickers, timespan, from_time, to_time):
+
+def load_data(client, tickers, timespan, from_time, to_time):
     """
-    Loads stock data from Polygon.io API for the given tickers.
+    Loads stock data from Polygon.io API client for the given tickers.
     If the data is not cached, it will be downloaded and saved as a parquet file.
     Returns a dictionary of polars DataFrames, with the ticker as the key.
     """
@@ -44,35 +37,61 @@ def load_data(tickers, timespan, from_time, to_time):
             histories[ticker] = df
     return histories
 
+
+def combine_ticker_histories(history):
+    # Pre-process historical data in one pass with unique timestamp
+    tickers = list(history.keys())
+    first_ticker = tickers[0]
+    base_df = (
+        history[first_ticker]
+        .lazy()
+        .select(
+            [
+                pl.from_epoch(pl.col("timestamp"), time_unit="ms")
+                .cast(pl.Datetime("us"))
+                .alias("timestamp"),
+                pl.col("close").alias(f"{first_ticker}_close"),
+                pl.col("close")
+                .pct_change()
+                .add(1)
+                .fill_null(1)
+                .alias(f"{first_ticker}_return"),
+            ]
+        )
+    )
+
+    # Add returns and closing prices for other tickers
+    for ticker in tickers[1:]:
+        base_df = base_df.join(
+            history[ticker]
+            .lazy()
+            .select(
+                [
+                    pl.from_epoch(pl.col("timestamp"), time_unit="ms")
+                    .cast(pl.Datetime("us"))
+                    .alias("timestamp"),
+                    pl.col("close").alias(f"{ticker}_close"),
+                    pl.col("close")
+                    .pct_change()
+                    .add(1)
+                    .fill_null(1)
+                    .alias(f"{ticker}_return"),
+                ]
+            ),
+            on="timestamp",
+            how="full",
+        )
+
+    return base_df.collect()
+
+
 @timeit
 def backtest(history, weights, tickers):
     """
     Backtests the given weights on the given stock data.
     Returns a DataFrame with the cumulative return and daily return.
     """
-    combined_history = None
-    for ticker in tickers:
-        df = (
-            history[ticker]
-            .lazy()
-            .select([
-                # Convert millisecond epoch to datetime
-                pl.from_epoch(pl.col("timestamp"), time_unit="ms")
-                .cast(pl.Datetime("us"))
-                .alias("timestamp"),
-                pl.col("close").alias(f"{ticker}_close"),
-                pl.col("close")
-                .pct_change()
-                .add(1)
-                .fill_null(1)
-                .alias(f"{ticker}_return"),
-            ])
-        )
-        if combined_history is None:
-            combined_history = df
-        else:
-            combined_history = combined_history.join(df, on="timestamp", how="full")
-
+    combined_history = history.lazy()
     weights_lazy = (
         weights.lazy()
         .sort("timestamp")
@@ -88,7 +107,7 @@ def backtest(history, weights, tickers):
         left_on="timestamp",
         right_on="rebalance_date",
         strategy="backward",
-    )
+    ).drop_nulls()
 
     # cumulative return within each rebalance period
     for ticker in tickers:
@@ -126,18 +145,28 @@ def backtest(history, weights, tickers):
     backtest = backtest.join(aggregated_period, on="rebalance_date", how="right")
 
     # cumulative returns
-    backtest = backtest.with_columns(
-        [
-            pl.col(f"{ticker}_return").cum_prod().alias(f"{ticker}_cumulative_return")
-            for ticker in tickers
-        ]
-    ).with_columns(
-        pl.col("period_total_weighted")
-        .mul(pl.col("previous_period_last"))
-        .alias("overall_cumulative_return"),
+    backtest = (
+        backtest.with_columns(
+            [
+                pl.col(f"{ticker}_return")
+                .cum_prod()
+                .sub(1)
+                .alias(f"{ticker}_cumulative_return")
+                for ticker in tickers
+            ]
+        )
+        .with_columns(
+            pl.col("period_total_weighted")
+            .mul(pl.col("previous_period_last"))
+            .alias("overall_growth"),
+        )
+        .with_columns(
+            pl.col("overall_growth").sub(1).alias("overall_cumulative_return")
+        )
     )
 
     return backtest.collect()
+
 
 def calculate_sharpe_ratio(returns, risk_free_rate=0.02):
     """
@@ -145,116 +174,101 @@ def calculate_sharpe_ratio(returns, risk_free_rate=0.02):
     """
     # Calculate daily returns from cumulative returns
     daily_returns = returns.pct_change().drop_nulls()
-    
+
     # Convert annual risk-free rate to daily
-    daily_rf_rate = (1 + risk_free_rate) ** (1/252) - 1
-    
+    daily_rf_rate = (1 + risk_free_rate) ** (1 / 252) - 1
+
     # Calculate excess returns
     excess_returns = daily_returns - daily_rf_rate
-    
+
     # Calculate annualized Sharpe ratio
     annual_factor = 252
     sharpe_ratio = (
-        excess_returns.mean() * annual_factor / 
-        (excess_returns.std() * (annual_factor ** 0.5))
+        excess_returns.mean()
+        * annual_factor
+        / (excess_returns.std() * (annual_factor**0.5))
     )
-    
+
     return sharpe_ratio
+
 
 def plot_backtest(backtest, tickers=[]):
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[2, 1])
-    
+
     # Calculate total return and Sharpe ratio
     total_return = backtest["overall_cumulative_return"].last()
-    sharpe = calculate_sharpe_ratio(backtest["overall_cumulative_return"])
-    
-    # Plot cumulative returns
-    ax1.plot(
-        backtest["timestamp"], 
-        backtest["overall_cumulative_return"], 
-        label="Portfolio", 
-        color='blue'
-    )
+    sharpe = calculate_sharpe_ratio(backtest["overall_growth"])
+
     for ticker in tickers:
         ax1.plot(
             backtest["timestamp"],
             backtest[f"{ticker}_cumulative_return"],
             label=ticker,
         )
-    
+
+    # Plot cumulative returns
+    ax1.plot(
+        backtest["timestamp"],
+        backtest["overall_cumulative_return"],
+        label="Portfolio",
+        color="blue",
+    )
+
     # Add performance metrics as text (moved to upper right)
-    metrics_text = f'Total Return: {total_return:.2%}\nSharpe Ratio: {sharpe:.2f}'
-    ax1.text(0.98, 0.98, metrics_text,
-             transform=ax1.transAxes,
-             bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray'),
-             verticalalignment='top',
-             horizontalalignment='right',  # Right align text
-             fontsize=10)
-    
+    metrics_text = f"Total Return: {total_return:.2%}\nSharpe Ratio: {sharpe:.2f}"
+    ax1.text(
+        0.98,
+        0.98,
+        metrics_text,
+        transform=ax1.transAxes,
+        bbox=dict(facecolor="white", alpha=0.8, edgecolor="gray"),
+        verticalalignment="top",
+        horizontalalignment="right",  # Right align text
+        fontsize=10,
+    )
+
     # Rest of the plotting code remains the same
-    ax1.legend(loc='upper left')  # Legend stays in upper left
+    ax1.legend(loc="upper left")  # Legend stays in upper left
     ax1.set_title("Backtest Returns")
     ax1.yaxis.set_major_formatter(PercentFormatter(1))
     ax1.set_ylabel("Cumulative Return")
-    
+
     # Plot weights on bottom subplot
     for ticker in tickers:
-        ax2.plot(
-            backtest["timestamp"], 
-            backtest[ticker],
-            label=ticker
-        )
+        ax2.plot(backtest["timestamp"], backtest[ticker], label=ticker)
     ax2.set_title("Asset Weights")
     ax2.set_ylabel("Weight")
     ax2.set_xlabel("Date")
     ax2.grid(visible=True)
     ax2.legend()
-    
+
     plt.tight_layout()
     plt.show()
 
+
 @timeit
-def load_weight(alpha):
+def load_weight(alpha, combined_history):
     """
     Creates a weight DataFrame by iterating through time and updating weights
     """
-    resolution_map = {
-        "day": timedelta(days=1),
-        "hour": timedelta(hours=1),
-        "minute": timedelta(minutes=1)
-    }
-    freq = resolution_map.get(alpha.resolution, timedelta(days=1))
-
-    # Create timestamps as Python list more efficiently
-    start_date = datetime.strptime(alpha.start, "%Y-%m-%d")
-    end_date = datetime.strptime(alpha.end, "%Y-%m-%d")
-    num_days = (end_date - start_date).days + 1
-    timestamps_list = [start_date + freq * i for i in range(num_days)]
-
-    weights_data = {
-        "timestamp": timestamps_list,
-        **{ticker: [0.0] * len(timestamps_list) for ticker in alpha.get_ticker()}
-    }
-    timestamps = pl.DataFrame(weights_data).with_columns([
-        pl.col("timestamp").cast(pl.Datetime("us"))
-    ])
+    weights = combined_history.select(pl.col("timestamp"))
 
     tickers = alpha.get_ticker()
     weights_updates = []
-    
-    for ts in timestamps["timestamp"]:
+
+    for ts in weights["timestamp"]:
         alpha.set_time(ts)
+        alpha.add_prices(combined_history.filter(pl.col("timestamp") == ts))
         current_weights = alpha.update()
         weights_updates.append(current_weights)
 
     for i, ticker in enumerate(tickers):
-        timestamps = timestamps.with_columns(
-            pl.Series([w[i] for w in weights_updates])
-            .alias(ticker)
+        weights = weights.with_columns(
+            pl.Series([w[i] for w in weights_updates]).shift().alias(ticker)
         )
 
-    validate_weights(timestamps, tickers)
-        
-    return timestamps, tickers
+    weights = weights.drop_nulls()
+    validate_weights(weights, tickers)
 
+    return weights

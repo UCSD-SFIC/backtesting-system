@@ -1,6 +1,5 @@
 import backtest
 import polars as pl
-import pytest
 
 
 def test_backtest():
@@ -72,8 +71,8 @@ def test_backtest():
     )
 
     assert result["overall_cumulative_return"].to_list() == [
-        day_1,
-        day_2,
-        day_2 * day_2_to_3,
-        day_2 * day_2_to_4,
+        day_1 - 1,
+        day_2 - 1,
+        day_2 * day_2_to_3 - 1,
+        day_2 * day_2_to_4 - 1,
     ]

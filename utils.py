@@ -1,5 +1,4 @@
 import polars as pl
-import numpy as np
 from time import time
 
 
@@ -32,7 +31,7 @@ def validate_weights(weights_df, tickers):
         error_dates = invalid_weights.select("timestamp").to_series().to_list()
         error_weights = invalid_weights.select("total_weight").to_series().to_list()
         raise ValueError(
-            f"Portfolio weights exceed 1 at following timestamps:\n"
+            "Portfolio weights exceed 1 at following timestamps:\n"
             + "\n".join(
                 [
                     f"Date: {date}, Total Weight: {weight:.3f}"
