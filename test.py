@@ -46,6 +46,7 @@ def test_backtest():
         }
     )
     tickers = ["A", "B"]
+    history = backtest.combine_ticker_histories(history)
     result = backtest.backtest(history, weights, tickers)
 
     print("\nDebugging information:")
