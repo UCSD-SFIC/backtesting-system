@@ -1,41 +1,20 @@
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 import polars as pl
-import os
 from utils import validate_weights
 from utils import timeit
+from data import DataProvider
+from alpha import Alpha
 
 
-def load_data(client, tickers, timespan, from_time, to_time):
-    """
-    Loads stock data from Polygon.io API client for the given tickers.
-    If the data is not cached, it will be downloaded and saved as a parquet file.
-    Returns a dictionary of polars DataFrames, with the ticker as the key.
-    """
-    histories = {}
-    cache_dir = "history_cache"
-    for ticker in tickers:
-        path = os.path.join(
-            cache_dir, f"{ticker}-{timespan}-{from_time}-{to_time}.parquet"
-        )
-        try:
-            df = pl.read_parquet(path)
-            histories[ticker] = df
-        except FileNotFoundError:
-            print(f"Downloading {ticker} data")
-            aggs = client.get_aggs(
-                ticker=f"{ticker}",
-                multiplier=1,
-                timespan=timespan,
-                from_=from_time,
-                to=to_time,
-            )
-            df = pl.DataFrame(aggs)
-            if not os.path.exists(cache_dir):
-                os.makedirs(cache_dir)
-            df.write_parquet(path)
-            histories[ticker] = df
-    return histories
+def fetch_history(
+    data_provider: DataProvider,
+    tickers: list[str],
+    timespan: str,
+    from_time: str,
+    to_time: str,
+):
+    return data_provider.get_history(tickers, timespan, from_time, to_time)
 
 
 def combine_ticker_histories(history):
@@ -248,19 +227,19 @@ def plot_backtest(backtest, tickers=[]):
 
 
 @timeit
-def load_weight(alpha, combined_history):
+def load_weight(alpha: Alpha, combined_history):
     """
     Creates a weight DataFrame by iterating through time and updating weights
     """
     weights = combined_history.select(pl.col("timestamp"))
 
-    tickers = alpha.get_ticker()
+    tickers = alpha.get_tickers()
     weights_updates = []
 
     for ts in weights["timestamp"]:
-        alpha.set_time(ts)
-        alpha.add_prices(combined_history.filter(pl.col("timestamp") == ts))
-        current_weights = alpha.update()
+        current_slice = combined_history.filter(pl.col("timestamp") == ts)
+        alpha.update(current_slice)
+        current_weights = alpha.get_weights()
         weights_updates.append(current_weights)
 
     for i, ticker in enumerate(tickers):
@@ -272,3 +251,17 @@ def load_weight(alpha, combined_history):
     validate_weights(weights, tickers)
 
     return weights
+
+
+def run_backtest(
+    data_provider: DataProvider,
+    alpha: Alpha,
+    timespan: str,
+    from_time: str,
+    to_time: str,
+):
+    tickers = alpha.get_tickers()
+    history = fetch_history(data_provider, tickers, timespan, from_time, to_time)
+    combined_history = combine_ticker_histories(history)
+    weights = load_weight(alpha, combined_history)
+    return backtest(combined_history, weights, tickers)
