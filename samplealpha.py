@@ -1,4 +1,11 @@
-class sampleAlpha:
+from __future__ import annotations
+
+import polars as pl
+
+from alpha import Alpha
+
+
+class sampleAlpha(Alpha):
     def __init__(
         self,
         universe,
@@ -23,20 +30,20 @@ class sampleAlpha:
         self.short_ma = None
         self.long_ma = None
         self.position = 0
+        self.weight = [1, 0]
 
     def get_weight(self):
         return self.weight
 
-    def get_ticker(self):
+    def get_tickers(self):
         return self.ticker
 
-    def set_time(self, time):
-        self.current_time = time
-
-    def add_prices(self, price):
+    def _add_prices(self, price: pl.DataFrame):
         """Adds new price data and update moving averages"""
-        price = price["SPY_close"][0]
-        self.price_history.append(price)
+        primary_ticker = self.ticker[0]
+        close_column = f"{primary_ticker}_close"
+        close_price = price[close_column][0]
+        self.price_history.append(close_price)
 
         # Calculate moving averages if we have enough data
         if len(self.price_history) >= self.short_window:
@@ -49,13 +56,19 @@ class sampleAlpha:
                 sum(self.price_history[-self.long_window :]) / self.long_window
             )
 
-    def update(self):
+    def update(self, market_slice: pl.DataFrame):
         """
         Update the strategy based on current price data
-        Returns the current weight/position size
         """
+        self.current_time = market_slice["timestamp"][0]
+        self._add_prices(market_slice)
 
         if self.short_ma is None or self.long_ma is None:
-            return [1, 0]
+            self.weight = [1, 0]
+            return None
 
-        return [1, 0] if self.short_ma > self.long_ma else [0, 1]
+        self.weight = [1, 0] if self.short_ma > self.long_ma else [0, 1]
+        return None
+
+    def get_weights(self):
+        return self.weight
