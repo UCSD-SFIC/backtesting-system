@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Test dependencies.
+pytest>=8.0
