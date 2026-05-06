@@ -1,7 +1,11 @@
-import polars as pl
+from __future__ import annotations
+
 from typing import Optional
+
+import polars as pl
+
 from alpha import Alpha
-from analytics.metrics import calculate_sharpe_ratio, summarize_performance
+from analytics.metrics import summarize_performance
 from data_layer.providers import DataProvider
 from engine_layer.backtest_engine import BacktestEngine
 from engine_layer.history import combine_ticker_histories
@@ -21,7 +25,6 @@ def fetch_history(
 
 
 def backtest(history: pl.DataFrame, weights: pl.DataFrame, tickers: list[str]) -> pl.DataFrame:
-    # Backward-compatible functional entrypoint.
     return BacktestEngine(data_provider=None).run_portfolio_backtest(history, weights, tickers)
 
 
