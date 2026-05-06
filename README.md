@@ -32,8 +32,14 @@ Performance summary includes:
 - Annualized Volatility
 - Maximum Drawdown
 
-Create conda environment with necessary packages using the following command:
+## Setup
+
+Create a local environment with `uv`:
+
 ```bash
-conda env create -f environment.yml
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements-dev.txt
 ```
 
+For runtime-only installs, use `requirements.txt` instead.

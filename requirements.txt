@@ -1,0 +1,7 @@
+# Runtime dependencies for the backtesting system.
+matplotlib>=3.8
+polars>=1.0
+polygon-api-client>=1.14
+pyarrow>=15.0
+python-dotenv>=1.0
+yfinance>=0.2

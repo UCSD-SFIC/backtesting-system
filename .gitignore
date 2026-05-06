@@ -1,4 +1,7 @@
 .env
+.pytest_cache
+.venv
 .DS_Store
 __pycache__
 history_cache
+uv.lock
