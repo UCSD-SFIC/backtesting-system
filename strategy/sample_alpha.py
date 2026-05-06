@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import polars as pl
 
-from alpha import Alpha
+from strategy.alpha import Alpha
 
 
-class sampleAlpha(Alpha):
+class SampleAlpha(Alpha):
     def __init__(
         self,
         universe,
@@ -72,3 +72,6 @@ class sampleAlpha(Alpha):
 
     def get_weights(self):
         return self.weight
+
+
+sampleAlpha = SampleAlpha

@@ -3,11 +3,11 @@ from __future__ import annotations
 import polars as pl
 from typing import Optional
 
-from alpha import Alpha
-from data_layer.providers import DataProvider
-from engine_layer.history import combine_ticker_histories
-from engine_layer.weights import build_weight_frame
-from utils import timeit
+from data.providers import DataProvider
+from engine.history import combine_ticker_histories
+from engine.weights import build_weight_frame
+from engine.utils import timeit
+from strategy.alpha import Alpha
 
 
 class BacktestEngine:

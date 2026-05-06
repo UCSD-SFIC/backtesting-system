@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from backtest import backtest
-from engine_layer.history import combine_ticker_histories
+from engine.history import combine_ticker_histories
+from pipeline.backtest import backtest
 
 
 # Tests for the core portfolio calculation contract.

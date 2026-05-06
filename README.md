@@ -7,13 +7,12 @@ Polygon is also supported.
 
 The project is split into modular layers:
 
-- `data_layer`: market data abstractions and providers (`PolygonDataProvider`, `YFinanceDataProvider`)
-- `strategy_layer`: strategy interfaces (`Alpha`) and strategy implementations
-- `engine_layer`: backtest orchestration and portfolio simulation
+- `data`: market data abstractions and providers (`PolygonDataProvider`, `YFinanceDataProvider`)
+- `strategy`: strategy interfaces (`Alpha`) and strategy implementations
+- `engine`: backtest orchestration and portfolio simulation
+- `pipeline`: runnable backtest workflow entrypoints
 - `analytics`: performance and risk metrics
 - `visualization`: result plotting
-
-`backtest.py` and `data.py` remain as compatibility facades.
 
 ## Provider Switching
 
@@ -43,3 +42,9 @@ uv pip install -r requirements-dev.txt
 ```
 
 For runtime-only installs, use `requirements.txt` instead.
+
+Run the sample alpha:
+
+```bash
+python -m pipeline.run_sample
+```

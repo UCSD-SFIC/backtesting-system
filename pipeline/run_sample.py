@@ -1,15 +1,12 @@
 from dotenv import load_dotenv
 import os
-from samplealpha import sampleAlpha
-from backtest import (
-    run_backtest,
-    plot_backtest,
-    summarize_backtest,
-)
+
 from data import PolygonDataProvider, YFinanceDataProvider
+from pipeline import plot_backtest, run_backtest, summarize_backtest
+from strategy import SampleAlpha
 
 
-if __name__ == "__main__":
+def main() -> None:
     load_dotenv()
 
     provider_name = os.getenv("DATA_PROVIDER", "yfinance").lower()
@@ -24,7 +21,7 @@ if __name__ == "__main__":
         raise ValueError("DATA_PROVIDER must be one of: polygon, yfinance")
 
     tickers = ["SPY", "SH"]
-    alpha = sampleAlpha("US", "day", tickers, "2024-01-01", "2024-12-06")
+    alpha = SampleAlpha("US", "day", tickers, "2024-01-01", "2024-12-06")
 
     backtest_result = run_backtest(
         data_provider=data_provider,
@@ -42,3 +39,7 @@ if __name__ == "__main__":
     print(f"Max drawdown: {metrics['max_drawdown']:.02%}")
 
     plot_backtest(backtest_result, tickers)
+
+
+if __name__ == "__main__":
+    main()

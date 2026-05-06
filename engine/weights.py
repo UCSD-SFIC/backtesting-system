@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import polars as pl
 
-from alpha import Alpha
-from utils import validate_weights, timeit
+from engine.utils import validate_weights, timeit
+from strategy.alpha import Alpha
 
 
 @timeit

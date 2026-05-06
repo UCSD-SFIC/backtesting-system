@@ -45,19 +45,6 @@ def validate_weights(weights_df, tickers):
     if underweight.height > 0:
         print("Warning: Some timestamps have total weights less than 1.0")
 
-
-def sample_weight():
-    """
-    Generates a DataFrame of portfolio weights over time.
-
-    """
-    stock1 = "NVDA"
-    stock2 = "UVXY"
-    tickers = [stock1, stock2]
-    weights = [0.1, 0.9]
-    return weights, tickers
-
-
 def timeit(func):
     def wrapper(*args, **kwargs):
         start = time()

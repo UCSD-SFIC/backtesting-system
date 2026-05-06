@@ -4,12 +4,12 @@ from typing import Optional
 
 import polars as pl
 
-from alpha import Alpha
 from analytics.metrics import summarize_performance
-from data_layer.providers import DataProvider
-from engine_layer.backtest_engine import BacktestEngine
-from engine_layer.history import combine_ticker_histories
-from engine_layer.weights import build_weight_frame
+from data.providers import DataProvider
+from engine.backtest_engine import BacktestEngine
+from engine.history import combine_ticker_histories
+from engine.weights import build_weight_frame
+from strategy.alpha import Alpha
 from visualization.plots import plot_backtest as _plot_backtest
 
 
