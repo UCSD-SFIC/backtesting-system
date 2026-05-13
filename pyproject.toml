@@ -23,5 +23,6 @@ package = false
 
 [tool.pytest.ini_options]
 addopts = "-q"
+pythonpath = ["."]
 python_files = ["test_*.py", "*_test.py"]
 testpaths = ["tests"]
