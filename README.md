@@ -60,15 +60,3 @@ Run the sample alpha:
 ```bash
 python -m pipeline.run_sample
 ```
-
-Run the dual-momentum strategy:
-
-```bash
-python -m pipeline.run_trend_regime
-```
-
-Run the WEDNESDAY+ strategy:
-
-```bash
-python -m pipeline.run_wednesday_plus
-```
