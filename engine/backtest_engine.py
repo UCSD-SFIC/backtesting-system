@@ -57,15 +57,18 @@ class BacktestEngine:
                 .alias(f"{ticker}_period_return")
             )
 
+        allocated_weight = pl.sum_horizontal([pl.col(ticker) for ticker in tickers])
+        result = result.with_columns(
+            allocated_weight.alias("allocated_weight"),
+            pl.lit(1.0).sub(allocated_weight).alias("cash_weight"),
+        )
+
         result = result.with_columns(
             pl.sum_horizontal(
-                [
-                    pl.col(f"{ticker}_period_return")
-                    .mul(pl.col(ticker))
-                    .alias(f"{ticker}_weighted_return")
-                    for ticker in tickers
-                ]
-            ).alias("period_total_weighted")
+                [pl.col(f"{ticker}_period_return").mul(pl.col(ticker)) for ticker in tickers]
+            )
+            .add(pl.col("cash_weight"))
+            .alias("period_total_weighted")
         )
 
         aggregated_period = (

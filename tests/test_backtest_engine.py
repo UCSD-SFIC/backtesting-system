@@ -42,3 +42,30 @@ def test_backtest_result_includes_component_and_portfolio_columns(
         "overall_cumulative_return",
     }
     assert expected_columns.issubset(set(result.columns))
+
+
+def test_backtest_treats_unallocated_weight_as_cash():
+    history = {
+        "A": __import__("polars").DataFrame(
+            {"timestamp": [1704171600000, 1704258000000], "close": [1.0, 2.0]}
+        ),
+        "B": __import__("polars").DataFrame(
+            {"timestamp": [1704171600000, 1704258000000], "close": [1.0, 0.5]}
+        ),
+    }
+
+    weights = __import__("polars").DataFrame(
+        {
+            "A": [0.0],
+            "B": [0.0],
+            "timestamp": __import__("polars").Series(["01/01/2024 5:00:00"]).str.strptime(
+                __import__("polars").Datetime, "%d/%m/%Y %H:%M:%S"
+            ),
+        }
+    )
+
+    combined_history = combine_ticker_histories(history)
+    result = backtest(combined_history, weights, ["A", "B"])
+
+    assert result["overall_growth"].to_list() == pytest.approx([1.0, 1.0])
+    assert result["overall_cumulative_return"].to_list() == pytest.approx([0.0, 0.0])
