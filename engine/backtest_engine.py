@@ -14,6 +14,44 @@ class BacktestEngine:
     def __init__(self, data_provider: Optional[DataProvider]):
         self._data_provider = data_provider
 
+    def add_exponential_moving_average(
+        self,
+        history: pl.DataFrame,
+        ticker: str,
+        window: int,
+    ) -> pl.DataFrame:
+        """Add a close-price exponential moving average column for one ticker."""
+        if window <= 0:
+            raise ValueError("window must be greater than 0")
+
+        close_column = f"{ticker}_close"
+        if close_column not in history.columns:
+            raise ValueError(f"{close_column} is missing from history")
+
+        return history.sort("timestamp").with_columns(
+            pl.col(close_column)
+            .ewm_mean(span=window, adjust=False)
+            .alias(f"{ticker}_ema_{window}")
+        )
+
+    def add_indicators(self, history: pl.DataFrame, alpha: Alpha) -> pl.DataFrame:
+        """Materialize any engine-supported indicators requested by a strategy."""
+        indicator_specs = getattr(alpha, "get_required_indicators", lambda: [])()
+        enriched_history = history
+
+        for indicator_spec in indicator_specs:
+            indicator_type = indicator_spec.get("type")
+            if indicator_type == "exponential_moving_average":
+                enriched_history = self.add_exponential_moving_average(
+                    enriched_history,
+                    indicator_spec["ticker"],
+                    indicator_spec["window"],
+                )
+            else:
+                raise ValueError(f"Unsupported indicator type: {indicator_type}")
+
+        return enriched_history
+
     def fetch_history(
         self,
         tickers: list[str],
@@ -117,5 +155,6 @@ class BacktestEngine:
         tickers = alpha.get_tickers()
         history_raw = self.fetch_history(tickers, timespan, from_time, to_time)
         combined_history = combine_ticker_histories(history_raw)
+        combined_history = self.add_indicators(combined_history, alpha)
         weights = build_weight_frame(alpha, combined_history)
         return self.run_portfolio_backtest(combined_history, weights, tickers)

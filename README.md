@@ -60,3 +60,9 @@ Run the sample alpha:
 ```bash
 python -m pipeline.run_sample
 ```
+
+Run the exponential moving average sample alpha:
+
+```bash
+python -m pipeline.run_ema_sample
+```
