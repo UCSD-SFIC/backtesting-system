@@ -6,6 +6,40 @@ import os
 import polars as pl
 
 
+def _polygon_timespan(timespan: str) -> tuple[int, str]:
+    timespan_map = {
+        "minute": (1, "minute"),
+        "hour": (1, "hour"),
+        "2hour": (2, "hour"),
+        "day": (1, "day"),
+        "week": (1, "week"),
+        "month": (1, "month"),
+    }
+    return timespan_map.get(timespan, (1, timespan))
+
+
+def _yfinance_interval(timespan: str) -> str:
+    interval_map = {
+        "minute": "1m",
+        "hour": "1h",
+        "2hour": "1h",
+        "day": "1d",
+        "week": "1wk",
+        "month": "1mo",
+    }
+    return interval_map.get(timespan, "1d")
+
+
+def _flatten_yfinance_columns(columns) -> list[str]:
+    flattened_columns: list[str] = []
+    for column in columns:
+        if isinstance(column, tuple):
+            flattened_columns.append(str(next(part for part in column if part)))
+        else:
+            flattened_columns.append(str(column))
+    return flattened_columns
+
+
 class DataProvider(ABC):
     @abstractmethod
     def get_history(
@@ -43,10 +77,11 @@ class PolygonDataProvider(DataProvider):
                 histories[ticker] = pl.read_parquet(path)
             except FileNotFoundError:
                 print(f"Downloading {ticker} data")
+                multiplier, polygon_timespan = _polygon_timespan(timespan)
                 aggs = self._client.get_aggs(
                     ticker=ticker,
-                    multiplier=1,
-                    timespan=timespan,
+                    multiplier=multiplier,
+                    timespan=polygon_timespan,
                     from_=from_time,
                     to=to_time,
                 )
@@ -76,14 +111,7 @@ class YFinanceDataProvider(DataProvider):
                 "yfinance is required for YFinanceDataProvider. Install with `pip install yfinance`."
             ) from exc
 
-        interval_map = {
-            "minute": "1m",
-            "hour": "1h",
-            "day": "1d",
-            "week": "1wk",
-            "month": "1mo",
-        }
-        interval = interval_map.get(timespan, "1d")
+        interval = _yfinance_interval(timespan)
 
         histories: dict[str, pl.DataFrame] = {}
         for ticker in tickers:
@@ -99,7 +127,15 @@ class YFinanceDataProvider(DataProvider):
                 raise ValueError(f"No data returned for {ticker} from yfinance")
 
             df = df.reset_index()
+            df.columns = _flatten_yfinance_columns(df.columns)
             timestamp_col = "Datetime" if "Datetime" in df.columns else "Date"
+            if timespan == "2hour":
+                df = (
+                    df.resample("2h", on=timestamp_col)
+                    .last()
+                    .dropna(subset=["Close"])
+                    .reset_index()
+                )
 
             histories[ticker] = pl.DataFrame(
                 {
