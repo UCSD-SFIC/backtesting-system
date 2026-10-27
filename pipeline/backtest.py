@@ -43,9 +43,21 @@ def run_backtest(
     return engine.run(alpha=alpha, timespan=timespan, from_time=from_time, to_time=to_time)
 
 
-def summarize_backtest(backtest_df: pl.DataFrame, risk_free_rate: float = 0.02) -> dict[str, float]:
-    return summarize_performance(backtest_df, risk_free_rate=risk_free_rate)
+def summarize_backtest(
+    backtest_df: pl.DataFrame,
+    risk_free_rate: float = 0.02,
+    benchmark_ticker: Optional[str] = None,
+) -> dict[str, float]:
+    return summarize_performance(
+        backtest_df,
+        risk_free_rate=risk_free_rate,
+        benchmark_ticker=benchmark_ticker,
+    )
 
 
-def plot_backtest(backtest_df: pl.DataFrame, tickers: Optional[list[str]] = None) -> None:
-    _plot_backtest(backtest_df, tickers or [])
+def plot_backtest(
+    backtest_df: pl.DataFrame,
+    tickers: Optional[list[str]] = None,
+    show_components: bool = True,
+) -> None:
+    _plot_backtest(backtest_df, tickers or [], show_components=show_components)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import polars as pl
 
 from strategy.alpha import Alpha
+from strategy.indicators import sma
 
 
 class SampleAlpha(Alpha):
@@ -45,16 +46,9 @@ class SampleAlpha(Alpha):
         close_price = price[close_column][0]
         self.price_history.append(close_price)
 
-        # Calculate moving averages if we have enough data
-        if len(self.price_history) >= self.short_window:
-            self.short_ma = (
-                sum(self.price_history[-self.short_window :]) / self.short_window
-            )
-
-        if len(self.price_history) >= self.long_window:
-            self.long_ma = (
-                sum(self.price_history[-self.long_window :]) / self.long_window
-            )
+        # Now using the shared sma() function instead of inline math
+        self.short_ma = sma(self.price_history, self.short_window)
+        self.long_ma = sma(self.price_history, self.long_window)
 
     def update(self, market_slice: pl.DataFrame):
         """

@@ -26,10 +26,22 @@ Set `DATA_PROVIDER` in `.env`:
 Performance summary includes:
 
 - Total Return
+- Compounding Annual Return
 - Sharpe Ratio
 - Sortino Ratio
 - Annualized Volatility
+- Annual Variance
 - Maximum Drawdown
+- Win Rate
+- Loss Rate
+- Average Win
+- Average Loss
+- Profit-Loss Ratio
+- Expectancy
+- Beta vs benchmark
+- Alpha vs benchmark
+
+For the current sample setup, beta and alpha are measured against the first ticker in the selected universe.
 
 ## Setup
 
@@ -47,4 +59,10 @@ Run the sample alpha:
 
 ```bash
 python -m pipeline.run_sample
+```
+
+Run the exponential moving average sample alpha:
+
+```bash
+python -m pipeline.run_ema_sample
 ```
