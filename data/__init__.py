@@ -1,5 +1,5 @@
 from data.cache import CachedDataProvider
-from data.factory import PROVIDER_NAMES, create_data_provider
+from data.factory import PROVIDER_NAMES, create_data_provider, create_raw_provider
 from data.providers import (
     DataProvider,
     PolygonDataProvider,
@@ -26,6 +26,7 @@ __all__ = [
     "ValidatedDataProvider",
     "YFinanceDataProvider",
     "create_data_provider",
+    "create_raw_provider",
     "normalize_ohlcv",
     "validate_histories",
     "validate_history",
