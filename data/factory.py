@@ -14,6 +14,19 @@ from data.providers import (
 PROVIDER_NAMES = ("yfinance", "polygon")
 
 
+def create_raw_provider(name: str, polygon_api_key: str | None = None) -> DataProvider:
+    """Build an unwrapped provider by name (no validation, no cache)."""
+    name = name.lower()
+    if name == "polygon":
+        api_key = polygon_api_key or os.getenv("POLYGON_API_KEY")
+        if not api_key:
+            raise ValueError("POLYGON_API_KEY is not set in environment variables")
+        return PolygonDataProvider(api_key)
+    if name == "yfinance":
+        return YFinanceDataProvider()
+    raise ValueError(f"DATA_PROVIDER must be one of: {', '.join(PROVIDER_NAMES)}")
+
+
 def create_data_provider(
     name: str = "yfinance",
     cache_dir: str | Path | None = "history_cache",
@@ -27,18 +40,7 @@ def create_data_provider(
     Validation runs before caching, so data that fails checks is never written.
     Pass `cache_dir=None` to disable caching.
     """
-    name = name.lower()
-    provider: DataProvider
-    if name == "polygon":
-        api_key = polygon_api_key or os.getenv("POLYGON_API_KEY")
-        if not api_key:
-            raise ValueError("POLYGON_API_KEY is not set in environment variables")
-        provider = PolygonDataProvider(api_key)
-    elif name == "yfinance":
-        provider = YFinanceDataProvider()
-    else:
-        raise ValueError(f"DATA_PROVIDER must be one of: {', '.join(PROVIDER_NAMES)}")
-
+    provider = create_raw_provider(name, polygon_api_key)
     if validate:
         provider = ValidatedDataProvider(provider)
     if cache_dir is not None:

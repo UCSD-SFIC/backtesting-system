@@ -21,7 +21,8 @@ class CachedDataProvider(DataProvider):
 
     Files live at `<cache_dir>/<provider name>/<ticker>-<timespan>-<from>-<to>.parquet`.
     A range that ends today or later is still changing, so it is fetched but
-    not cached. Pass `refresh=True` to ignore and overwrite existing files.
+    not cached. Pass `refresh=True` to ignore and overwrite existing files, or
+    `write=False` to read cached files without writing new ones.
     """
 
     def __init__(
@@ -29,12 +30,14 @@ class CachedDataProvider(DataProvider):
         provider: DataProvider,
         cache_dir: str | Path = "history_cache",
         refresh: bool = False,
+        write: bool = True,
         today: dt.date | None = None,
     ):
         self._provider = provider
         self.name = provider.name
         self._cache_dir = Path(cache_dir) / _safe_filename_part(provider.name)
         self._refresh = refresh
+        self._write = write
         self._today = today
 
     def cache_path(self, ticker: str, timespan: str, from_time: str, to_time: str) -> Path:
@@ -67,7 +70,7 @@ class CachedDataProvider(DataProvider):
         if missing:
             logger.info("Fetching %s from %s", ", ".join(missing), self.name)
             fetched = self._provider.get_history(missing, timespan, from_time, to_time)
-            if self._is_cacheable(to_time):
+            if self._write and self._is_cacheable(to_time):
                 self._cache_dir.mkdir(parents=True, exist_ok=True)
                 for ticker, history in fetched.items():
                     history.write_parquet(

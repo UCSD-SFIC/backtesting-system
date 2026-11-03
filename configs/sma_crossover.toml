@@ -1,0 +1,23 @@
+# SMA crossover sample: hold SPY while the 5-day SMA is above the 20-day SMA,
+# otherwise hold SH. Run with:
+#   python -m pipeline.cli run --config configs/sma_crossover.toml
+
+tickers = ["SPY", "SH"]
+timespan = "day"          # minute, hour, 2hour, day, week, month
+start = 2024-01-01
+end = 2024-12-06          # inclusive
+benchmark = "SPY"         # defaults to the first ticker
+risk_free_rate = 0.02
+
+[strategy]
+name = "sma_crossover"    # sma_crossover, ema_dip
+
+[strategy.params]
+short_window = 5
+long_window = 20
+
+[data]
+provider = "yfinance"     # yfinance, polygon (needs POLYGON_API_KEY); env DATA_PROVIDER overrides
+cache_dir = "history_cache"
+refresh_cache = false
+validate_data = true
