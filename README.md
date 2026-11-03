@@ -58,6 +58,12 @@ Performance summary includes:
 
 For the current sample setup, beta and alpha are measured against the first ticker in the selected universe.
 
+Annualized metrics (compounding annual return, Sharpe, Sortino, volatility,
+variance, alpha) scale by bars per year, inferred from the bar timestamps:
+252 for daily, 52 for weekly, 12 for monthly, and 252 x the typical bars per
+trading day for intraday (1,008 for 2-hour yfinance bars, 1,764 for hourly).
+Pass `periods_per_year` to `summarize_performance` to override it.
+
 ## Setup
 
 Create a local environment with `uv`:

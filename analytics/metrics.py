@@ -1,11 +1,45 @@
 from __future__ import annotations
 
+import datetime as dt
 import math
 from typing import cast
 
 import polars as pl
 
 TRADING_DAYS_PER_YEAR = 252
+WEEKS_PER_YEAR = 52
+MONTHS_PER_YEAR = 12
+
+
+def infer_periods_per_year(timestamps: pl.Series) -> float:
+    """
+    Estimate how many bars make up one year from the bar timestamps.
+
+    Daily, weekly, and monthly bars use the usual 252 / 52 / 12. Intraday bars
+    use 252 times the typical number of bars per trading day, so 2-hour and
+    hourly runs annualize by trading time rather than as if each bar were a day.
+    Falls back to 252 when there are too few bars to tell.
+    """
+    timestamps = timestamps.drop_nulls().sort()
+    if timestamps.len() < 2:
+        return float(TRADING_DAYS_PER_YEAR)
+
+    if timestamps.dtype.is_integer():
+        timestamps = pl.from_epoch(timestamps, time_unit="ms")
+
+    median_gap = timestamps.diff().drop_nulls().median()
+    if median_gap is None:
+        return float(TRADING_DAYS_PER_YEAR)
+    gap_days = cast(dt.timedelta, median_gap).total_seconds() / 86_400
+
+    if gap_days < 0.75:
+        bars_per_day = timestamps.dt.date().value_counts()["count"].median()
+        return float(TRADING_DAYS_PER_YEAR * cast(float, bars_per_day))
+    if gap_days < 4:
+        return float(TRADING_DAYS_PER_YEAR)
+    if gap_days < 15:
+        return float(WEEKS_PER_YEAR)
+    return float(MONTHS_PER_YEAR)
 
 
 def _to_daily_returns(growth: pl.Series) -> pl.Series:
@@ -13,26 +47,34 @@ def _to_daily_returns(growth: pl.Series) -> pl.Series:
     return returns.filter(returns.is_finite())
 
 
-def calculate_sharpe_ratio(growth: pl.Series, risk_free_rate: float = 0.02) -> float:
+def calculate_sharpe_ratio(
+    growth: pl.Series,
+    risk_free_rate: float = 0.02,
+    periods_per_year: float = TRADING_DAYS_PER_YEAR,
+) -> float:
     daily_returns = _to_daily_returns(growth)
     if daily_returns.len() == 0:
         return 0.0
 
-    daily_rf = (1 + risk_free_rate) ** (1 / TRADING_DAYS_PER_YEAR) - 1
+    daily_rf = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
     excess_returns = daily_returns - daily_rf
     std = excess_returns.std()
     if std is None or std == 0:
         return 0.0
 
-    return float((excess_returns.mean() / std) * math.sqrt(TRADING_DAYS_PER_YEAR))
+    return float((excess_returns.mean() / std) * math.sqrt(periods_per_year))
 
 
-def calculate_sortino_ratio(growth: pl.Series, risk_free_rate: float = 0.02) -> float:
+def calculate_sortino_ratio(
+    growth: pl.Series,
+    risk_free_rate: float = 0.02,
+    periods_per_year: float = TRADING_DAYS_PER_YEAR,
+) -> float:
     daily_returns = _to_daily_returns(growth)
     if daily_returns.len() == 0:
         return 0.0
 
-    daily_rf = (1 + risk_free_rate) ** (1 / TRADING_DAYS_PER_YEAR) - 1
+    daily_rf = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
     excess_returns = daily_returns - daily_rf
     downside = excess_returns.filter(excess_returns < 0)
     if downside.len() == 0:
@@ -42,10 +84,12 @@ def calculate_sortino_ratio(growth: pl.Series, risk_free_rate: float = 0.02) -> 
     if downside_std is None or downside_std == 0:
         return 0.0
 
-    return float((excess_returns.mean() / downside_std) * math.sqrt(TRADING_DAYS_PER_YEAR))
+    return float((excess_returns.mean() / downside_std) * math.sqrt(periods_per_year))
 
 
-def calculate_annualized_volatility(growth: pl.Series) -> float:
+def calculate_annualized_volatility(
+    growth: pl.Series, periods_per_year: float = TRADING_DAYS_PER_YEAR
+) -> float:
     daily_returns = _to_daily_returns(growth)
     if daily_returns.len() == 0:
         return 0.0
@@ -54,11 +98,13 @@ def calculate_annualized_volatility(growth: pl.Series) -> float:
     if std is None:
         return 0.0
 
-    return float(cast(float, std) * math.sqrt(TRADING_DAYS_PER_YEAR))
+    return float(cast(float, std) * math.sqrt(periods_per_year))
 
 
-def calculate_annual_variance(growth: pl.Series) -> float:
-    annualized_volatility = calculate_annualized_volatility(growth)
+def calculate_annual_variance(
+    growth: pl.Series, periods_per_year: float = TRADING_DAYS_PER_YEAR
+) -> float:
+    annualized_volatility = calculate_annualized_volatility(growth, periods_per_year)
     return float(annualized_volatility**2)
 
 
@@ -80,7 +126,9 @@ def calculate_max_drawdown(growth: pl.Series) -> float:
     return float(max_dd)
 
 
-def calculate_compounding_annual_return(growth: pl.Series) -> float:
+def calculate_compounding_annual_return(
+    growth: pl.Series, periods_per_year: float = TRADING_DAYS_PER_YEAR
+) -> float:
     daily_returns = _to_daily_returns(growth)
     if daily_returns.len() == 0:
         return 0.0
@@ -89,7 +137,7 @@ def calculate_compounding_annual_return(growth: pl.Series) -> float:
     if ending_growth <= 0:
         return 0.0
 
-    years = daily_returns.len() / TRADING_DAYS_PER_YEAR
+    years = daily_returns.len() / periods_per_year
     if years <= 0:
         return 0.0
 
@@ -186,9 +234,10 @@ def calculate_alpha(
     growth: pl.Series,
     benchmark_returns: pl.Series,
     risk_free_rate: float = 0.02,
+    periods_per_year: float = TRADING_DAYS_PER_YEAR,
 ) -> float:
     beta = calculate_beta(growth, benchmark_returns)
-    portfolio_return = calculate_compounding_annual_return(growth)
+    portfolio_return = calculate_compounding_annual_return(growth, periods_per_year)
 
     aligned_length = benchmark_returns.len()
     if aligned_length == 0:
@@ -198,7 +247,7 @@ def calculate_alpha(
         "benchmark_growth",
         [1.0] + [(1 + value) for value in benchmark_returns.to_list()],
     ).cum_prod()
-    benchmark_return = calculate_compounding_annual_return(benchmark_growth)
+    benchmark_return = calculate_compounding_annual_return(benchmark_growth, periods_per_year)
 
     return float(portfolio_return - (risk_free_rate + beta * (benchmark_return - risk_free_rate)))
 
@@ -238,7 +287,20 @@ def summarize_performance(
     backtest_df: pl.DataFrame,
     risk_free_rate: float = 0.02,
     benchmark_ticker: str | None = None,
+    periods_per_year: float | None = None,
 ) -> dict[str, float]:
+    """
+    Compute every performance metric for a backtest result.
+
+    Annualized metrics use `periods_per_year`; when it is None it is inferred
+    from the `timestamp` column (or 252 if there is none).
+    """
+    if periods_per_year is None:
+        periods_per_year = (
+            infer_periods_per_year(backtest_df["timestamp"])
+            if "timestamp" in backtest_df.columns
+            else float(TRADING_DAYS_PER_YEAR)
+        )
     growth = backtest_df["overall_growth"]
     total_return = float(backtest_df["overall_cumulative_return"][-1])
     benchmark_returns = _extract_benchmark_returns(
@@ -248,11 +310,13 @@ def summarize_performance(
 
     summary = {
         "total_return": total_return,
-        "compounding_annual_return": calculate_compounding_annual_return(growth),
-        "sharpe_ratio": calculate_sharpe_ratio(growth, risk_free_rate),
-        "sortino_ratio": calculate_sortino_ratio(growth, risk_free_rate),
-        "annualized_volatility": calculate_annualized_volatility(growth),
-        "annual_variance": calculate_annual_variance(growth),
+        "compounding_annual_return": calculate_compounding_annual_return(
+            growth, periods_per_year
+        ),
+        "sharpe_ratio": calculate_sharpe_ratio(growth, risk_free_rate, periods_per_year),
+        "sortino_ratio": calculate_sortino_ratio(growth, risk_free_rate, periods_per_year),
+        "annualized_volatility": calculate_annualized_volatility(growth, periods_per_year),
+        "annual_variance": calculate_annual_variance(growth, periods_per_year),
         "max_drawdown": calculate_max_drawdown(growth),
         "win_rate": calculate_win_rate(growth),
         "loss_rate": calculate_loss_rate(growth),
@@ -262,6 +326,7 @@ def summarize_performance(
         "expectancy": calculate_expectancy(growth),
         "beta": 0.0,
         "alpha": 0.0,
+        "periods_per_year": periods_per_year,
     }
 
     if benchmark_returns is not None:
@@ -270,6 +335,7 @@ def summarize_performance(
             growth,
             benchmark_returns,
             risk_free_rate=risk_free_rate,
+            periods_per_year=periods_per_year,
         )
 
     return summary
