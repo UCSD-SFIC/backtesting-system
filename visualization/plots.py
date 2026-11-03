@@ -3,12 +3,11 @@ from __future__ import annotations
 import matplotlib.dates as mdates
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import polars as pl
 from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import PercentFormatter
-import polars as pl
 
 from analytics.metrics import summarize_performance
-
 
 FIGURE_BG = "#f6f3ee"
 PANEL_BG = "#fffdf8"
@@ -141,10 +140,18 @@ def create_backtest_figure(
     ax_metrics.axis("off")
     metric_rows = [
         ("Total Return", metrics["total_return"], f"{metrics['total_return']:.2%}"),
-        ("Comp. Annual Return", metrics["compounding_annual_return"], f"{metrics['compounding_annual_return']:.2%}"),
+        (
+            "Comp. Annual Return",
+            metrics["compounding_annual_return"],
+            f"{metrics['compounding_annual_return']:.2%}",
+        ),
         ("Sharpe Ratio", metrics["sharpe_ratio"], f"{metrics['sharpe_ratio']:.2f}"),
         ("Sortino Ratio", metrics["sortino_ratio"], f"{metrics['sortino_ratio']:.2f}"),
-        ("Annualized Volatility", metrics["annualized_volatility"], f"{metrics['annualized_volatility']:.2%}"),
+        (
+            "Annualized Volatility",
+            metrics["annualized_volatility"],
+            f"{metrics['annualized_volatility']:.2%}",
+        ),
         ("Annual Variance", metrics["annual_variance"], f"{metrics['annual_variance']:.4f}"),
         ("Max Drawdown", metrics["max_drawdown"], f"{metrics['max_drawdown']:.2%}"),
         ("Win Rate", metrics["win_rate"], f"{metrics['win_rate']:.2%}"),
@@ -196,7 +203,7 @@ def create_backtest_figure(
         0.06,
         0.02,
         (
-            f"Generated from the current backtest run"
+            "Generated from the current backtest run"
             + (f" | Beta benchmark: {benchmark_ticker}" if benchmark_ticker else "")
         ),
         transform=ax_metrics.transAxes,

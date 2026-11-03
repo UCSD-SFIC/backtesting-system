@@ -7,7 +7,6 @@ import pytest
 
 from engine.history import combine_ticker_histories
 
-
 # Tests for the raw per-ticker history to combined-history contract.
 
 

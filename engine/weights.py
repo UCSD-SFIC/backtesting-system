@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from engine.utils import validate_weights, timeit
+from engine.utils import timeit, validate_weights
 from strategy.alpha import Alpha
 
 
@@ -12,10 +12,11 @@ def build_weight_frame(alpha: Alpha, combined_history: pl.DataFrame) -> pl.DataF
     weights = combined_history.select(pl.col("timestamp"))
     tickers = alpha.get_tickers()
 
+    # Timestamps are unique after combine_ticker_histories, so each bar is one
+    # row; slicing by position avoids rescanning the whole table every step.
     weight_updates: list[list[float]] = []
-    for ts in weights["timestamp"]:
-        current_slice = combined_history.filter(pl.col("timestamp") == ts)
-        alpha.update(current_slice)
+    for row in range(combined_history.height):
+        alpha.update(combined_history.slice(row, 1))
         weight_updates.append(alpha.get_weights())
 
     for i, ticker in enumerate(tickers):

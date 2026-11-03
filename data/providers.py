@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import datetime as dt
 import logging
+from abc import ABC, abstractmethod
 
 import polars as pl
 
 from data.schema import normalize_ohlcv
 from data.validation import raise_for_errors, validate_histories
-
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +136,8 @@ class YFinanceDataProvider(DataProvider):
             import yfinance as yf
         except ImportError as exc:
             raise ImportError(
-                "yfinance is required for YFinanceDataProvider. Install with `pip install yfinance`."
+                "yfinance is required for YFinanceDataProvider. "
+                "Install with `pip install yfinance`."
             ) from exc
 
         interval = _yfinance_interval(timespan)

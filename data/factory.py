@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
 
 from data.cache import CachedDataProvider
 from data.providers import (
@@ -12,16 +11,15 @@ from data.providers import (
     YFinanceDataProvider,
 )
 
-
 PROVIDER_NAMES = ("yfinance", "polygon")
 
 
 def create_data_provider(
     name: str = "yfinance",
-    cache_dir: Optional[str | Path] = "history_cache",
+    cache_dir: str | Path | None = "history_cache",
     refresh_cache: bool = False,
     validate: bool = True,
-    polygon_api_key: Optional[str] = None,
+    polygon_api_key: str | None = None,
 ) -> DataProvider:
     """
     Build a provider by name, wrapped with validation and the shared cache.

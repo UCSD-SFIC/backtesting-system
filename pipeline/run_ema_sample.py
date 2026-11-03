@@ -1,5 +1,6 @@
-from dotenv import load_dotenv
 import os
+
+from dotenv import load_dotenv
 
 from data import create_data_provider
 from pipeline import plot_backtest, run_backtest, summarize_backtest
