@@ -170,3 +170,45 @@ def test_cli_reports_config_errors_without_traceback(tmp_path, capsys):
 
     assert code == 2
     assert "end must be after start" in capsys.readouterr().err
+
+
+ALLOCATION_CONFIG = """
+universe_file = "{universe}"
+start = 2024-01-01
+end = 2024-12-31
+benchmark = "SPY"
+
+[strategy]
+name = "allocation"
+
+[execution]
+cost_bps = 15
+"""
+
+
+def test_universe_file_and_outside_benchmark(tmp_path):
+    universe = tmp_path / "universe.csv"
+    universe.write_text("# comment\nticker\nAAPL\nmsft\n")
+
+    config = load_config(write_config(tmp_path, ALLOCATION_CONFIG.format(universe=universe)))
+
+    assert config.tickers == ["AAPL", "MSFT"]
+    assert config.benchmark == "SPY"
+    assert config.strategy.params["benchmark"] == "SPY"
+    assert config.execution.cost_bps == 15
+
+
+def test_universe_file_and_tickers_are_exclusive(tmp_path):
+    universe = tmp_path / "universe.csv"
+    universe.write_text("ticker\nAAPL\n")
+    text = 'tickers = ["AAPL"]\n' + ALLOCATION_CONFIG.format(universe=universe)
+
+    with pytest.raises(ValueError, match="either tickers or universe_file"):
+        load_config(write_config(tmp_path, text))
+
+
+def test_outside_benchmark_needs_a_strategy_that_supports_it(tmp_path):
+    text = BASE_CONFIG.replace("start = 2024-01-01", "start = 2024-01-01\nbenchmark = 'QQQ'")
+
+    with pytest.raises(ValidationError, match="benchmark must be one of the tickers"):
+        load_config(write_config(tmp_path, text))

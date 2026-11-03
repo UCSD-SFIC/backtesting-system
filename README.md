@@ -103,6 +103,42 @@ file. Strategies are registered by name in `strategy/registry.py`.
 `python -m pipeline.run_sample` and `python -m pipeline.run_ema_sample` still
 work; they run the two sample configs.
 
+## Allocation backtests
+
+`configs/allocation.toml` runs the momentum / 52-week-high allocation strategy
+(`strategy/allocation_alpha.py`) on a stock universe:
+
+```bash
+python -m pipeline.cli run --config configs/allocation.toml
+```
+
+- **Universe:** `universe_file` points to a CSV with a `ticker` column (use it
+  instead of `tickers`). `universes/us_large_cap_sample.csv` lists 50 current
+  large caps, so it is survivorship-biased; use point-in-time constituents for
+  real research. Stocks with missing history are skipped until they have
+  enough data.
+- **Signals** (`strategy/signals.py`): 12-1 month momentum (`lookback`,
+  `skip`) and price relative to the 52-week high (`high_window`), both in bars.
+  Stocks below `min_price` are not ranked.
+- **Sleeves:** `sleeves = { momentum = 0.7, high_52_week = 0.3 }` splits capital.
+  Each sleeve holds its top `top_n` names at equal weight; a stock in both
+  sleeves gets both weights. `max_weight` caps any one stock and spreads the
+  excess over the other holdings.
+- **Schedule:** the first trade is on the first bar on or after `start`, then
+  on the first bar of each month (`rebalance = "monthly"`) or quarter
+  (`"quarterly"`). Positions drift with prices between rebalances. Signals use
+  closes through the rebalance bar and trades fill from the next bar. History
+  before `start` is fetched automatically to warm up the signals.
+- **Costs:** `[execution] cost_bps` charges each rebalance's turnover (sum of
+  |target - drifted weight|). The run reports rebalances, average and annual
+  turnover, total simulated costs, average cash, and the latest target
+  holdings.
+- **Benchmark:** `benchmark` can be outside the universe; it is fetched for
+  comparison and never held.
+
+Any strategy can trade on a schedule by overriding `Alpha.should_rebalance()`
+and can request warm-up history with `Alpha.warmup_period()`.
+
 ## Development checks
 
 CI runs these on every pull request; run them locally before pushing:
