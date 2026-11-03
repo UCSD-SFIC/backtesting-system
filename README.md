@@ -70,17 +70,32 @@ uv pip install -r requirements-dev.txt
 
 For runtime-only installs, use `requirements.txt` instead.
 
-Run the sample alpha:
+## Running backtests
+
+Runs are described by a TOML config in `configs/`. Fields are validated, so a
+typo, unknown strategy, bad date range, or unknown parameter fails with a clear
+error instead of being silently ignored.
 
 ```bash
-python -m pipeline.run_sample
+python -m pipeline.cli run --config configs/sma_crossover.toml
+python -m pipeline.cli run --config configs/ema_dip.toml --no-plot --save-plot ema.png
+python -m pipeline.cli validate-data --config configs/sma_crossover.toml
 ```
 
-Run the exponential moving average sample alpha:
+`run` prints every metric and opens the plot. `validate-data` fetches the
+configured data, prints each ticker's bar count and every quality issue, and
+exits with code 1 if any errors are found.
 
-```bash
-python -m pipeline.run_ema_sample
-```
+Override config values without editing the file:
+
+- CLI flags: `--provider`, `--tickers SPY,SH`, `--start`, `--end`, `--refresh-cache`
+- Environment: `DATA_PROVIDER`, `BACKTEST_CACHE_DIR`
+
+The order of precedence is CLI flag, then environment variable, then config
+file. Strategies are registered by name in `strategy/registry.py`.
+
+`python -m pipeline.run_sample` and `python -m pipeline.run_ema_sample` still
+work; they run the two sample configs.
 
 ## Development checks
 
