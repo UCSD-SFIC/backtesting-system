@@ -90,3 +90,16 @@ def test_sample_alpha_end_to_end_switches_on_moving_average_cross():
         float(result["overall_cumulative_return"][-1])
     )
     assert metrics["max_drawdown"] < 0
+
+
+def test_component_cumulative_returns_follow_prices():
+    # Regression: per-ticker cumulative returns were computed on unsorted rows
+    # after a right join, so the component lines on the plot were scrambled.
+    closes = [100.0, 103.0, 99.0, 104.0, 108.0, 101.0, 110.0, 115.0, 112.0, 120.0]
+    provider = StaticProvider({"A": closes, "B": [50.0] * len(closes)})
+    alpha = FixedWeightAlpha(["A", "B"], [0.5, 0.5])
+
+    result = run_backtest(provider, alpha, "day", "2024-01-02", "2024-01-11")
+
+    expected = [close / closes[0] - 1 for close in closes[1:]]
+    assert result["A_cumulative_return"].to_list() == pytest.approx(expected)
