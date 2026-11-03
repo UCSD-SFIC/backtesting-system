@@ -21,6 +21,21 @@ Set `DATA_PROVIDER` in `.env`:
 - `DATA_PROVIDER=yfinance` (default, requires `yfinance` package)
 - `DATA_PROVIDER=polygon` (requires `POLYGON_API_KEY`)
 
+Build providers with `data.create_data_provider(name)`. It wraps the raw
+provider so every source behaves the same way:
+
+- **Schema:** each ticker's frame has `timestamp` (UTC epoch ms, Int64) and
+  `open`, `high`, `low`, `close`, `volume` (Float64), sorted by time. The
+  `to_time` date is inclusive for every provider.
+- **Validation:** fetched data is checked for missing columns, nulls, duplicate
+  or unsorted bars, non-positive prices, and negative volume (errors, which
+  raise `DataValidationError`), plus inconsistent OHLC, >50% single-bar moves,
+  and missing daily/weekly/monthly bars (warnings, which are logged).
+- **Cache:** validated data is written to
+  `history_cache/<provider>/<ticker>-<timespan>-<from>-<to>.parquet`. Ranges
+  that end today or later are not cached because they are still changing. Pass
+  `refresh_cache=True` to refetch, or `cache_dir=None` to disable caching.
+
 ## Metrics
 
 Performance summary includes:

@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-import os
+import datetime as dt
+import logging
 
 import polars as pl
+
+from data.schema import normalize_ohlcv
+from data.validation import raise_for_errors, validate_histories
+
+
+logger = logging.getLogger(__name__)
 
 
 def _polygon_timespan(timespan: str) -> tuple[int, str]:
@@ -41,6 +48,9 @@ def _flatten_yfinance_columns(columns) -> list[str]:
 
 
 class DataProvider(ABC):
+    # Short identifier used for cache folders and run metadata.
+    name: str = "provider"
+
     @abstractmethod
     def get_history(
         self,
@@ -49,15 +59,20 @@ class DataProvider(ABC):
         from_time: str,
         to_time: str,
     ) -> dict[str, pl.DataFrame]:
-        """Fetch historical OHLCV-like records for each ticker."""
+        """
+        Fetch history for each ticker, with `to_time` inclusive.
+
+        Each frame follows `data.schema.OHLCV_SCHEMA`.
+        """
 
 
 class PolygonDataProvider(DataProvider):
-    def __init__(self, api_key: str, cache_dir: str = "history_cache"):
+    name = "polygon"
+
+    def __init__(self, api_key: str):
         from polygon import RESTClient
 
         self._client = RESTClient(api_key)
-        self._cache_dir = cache_dir
 
     def get_history(
         self,
@@ -66,36 +81,50 @@ class PolygonDataProvider(DataProvider):
         from_time: str,
         to_time: str,
     ) -> dict[str, pl.DataFrame]:
+        multiplier, polygon_timespan = _polygon_timespan(timespan)
         histories: dict[str, pl.DataFrame] = {}
 
         for ticker in tickers:
-            path = os.path.join(
-                self._cache_dir,
-                f"{ticker}-{timespan}-{from_time}-{to_time}.parquet",
-            )
-            try:
-                histories[ticker] = pl.read_parquet(path)
-            except FileNotFoundError:
-                print(f"Downloading {ticker} data")
-                multiplier, polygon_timespan = _polygon_timespan(timespan)
-                aggs = self._client.get_aggs(
+            # list_aggs follows pagination; get_aggs stops at the first page.
+            aggs = list(
+                self._client.list_aggs(
                     ticker=ticker,
                     multiplier=multiplier,
                     timespan=polygon_timespan,
                     from_=from_time,
                     to=to_time,
+                    limit=50000,
                 )
-                df = pl.DataFrame(aggs)
-                if not os.path.exists(self._cache_dir):
-                    os.makedirs(self._cache_dir)
-                df.write_parquet(path)
-                histories[ticker] = df
+            )
+            if not aggs:
+                raise ValueError(f"No data returned for {ticker} from polygon")
+            histories[ticker] = normalize_ohlcv(pl.DataFrame(aggs))
 
         return histories
 
 
+def _resample_two_hour(df, timestamp_col: str):
+    return (
+        df.set_index(timestamp_col)
+        .resample("2h")
+        .agg(
+            {
+                "Open": "first",
+                "High": "max",
+                "Low": "min",
+                "Close": "last",
+                "Volume": "sum",
+            }
+        )
+        .dropna(subset=["Close"])
+        .reset_index()
+    )
+
+
 class YFinanceDataProvider(DataProvider):
     """Alternative provider to make data source swapping explicit and easy."""
+
+    name = "yfinance"
 
     def get_history(
         self,
@@ -112,40 +141,67 @@ class YFinanceDataProvider(DataProvider):
             ) from exc
 
         interval = _yfinance_interval(timespan)
+        # yfinance treats `end` as exclusive; shift it so `to_time` is included
+        # the same way it is for Polygon.
+        end = (dt.date.fromisoformat(to_time) + dt.timedelta(days=1)).isoformat()
 
         histories: dict[str, pl.DataFrame] = {}
         for ticker in tickers:
             df = yf.download(
                 ticker,
                 start=from_time,
-                end=to_time,
+                end=end,
                 interval=interval,
                 auto_adjust=False,
                 progress=False,
             )
-            if df.empty:
+            if df is None or df.empty:
                 raise ValueError(f"No data returned for {ticker} from yfinance")
 
             df = df.reset_index()
             df.columns = _flatten_yfinance_columns(df.columns)
             timestamp_col = "Datetime" if "Datetime" in df.columns else "Date"
             if timespan == "2hour":
-                df = (
-                    df.resample("2h", on=timestamp_col)
-                    .last()
-                    .dropna(subset=["Close"])
-                    .reset_index()
-                )
+                df = _resample_two_hour(df, timestamp_col)
 
-            histories[ticker] = pl.DataFrame(
-                {
-                    "timestamp": (
-                        pl.from_pandas(df[timestamp_col])
-                        .dt.epoch(time_unit="ms")
-                        .cast(pl.Int64)
-                    ),
-                    "close": pl.from_pandas(df["Close"]).cast(pl.Float64),
-                }
+            histories[ticker] = normalize_ohlcv(
+                pl.DataFrame(
+                    {
+                        "timestamp": (
+                            pl.from_pandas(df[timestamp_col])
+                            .dt.epoch(time_unit="ms")
+                            .cast(pl.Int64)
+                        ),
+                        "open": pl.from_pandas(df["Open"]),
+                        "high": pl.from_pandas(df["High"]),
+                        "low": pl.from_pandas(df["Low"]),
+                        "close": pl.from_pandas(df["Close"]),
+                        "volume": pl.from_pandas(df["Volume"]),
+                    }
+                )
             )
 
+        return histories
+
+
+class ValidatedDataProvider(DataProvider):
+    """Run data-quality checks on every fetch; errors raise, warnings log."""
+
+    def __init__(self, provider: DataProvider):
+        self._provider = provider
+        self.name = provider.name
+
+    def get_history(
+        self,
+        tickers: list[str],
+        timespan: str,
+        from_time: str,
+        to_time: str,
+    ) -> dict[str, pl.DataFrame]:
+        histories = self._provider.get_history(tickers, timespan, from_time, to_time)
+        issues = validate_histories(histories, timespan)
+        for issue in issues:
+            if issue.severity == "warning":
+                logger.warning("%s", issue)
+        raise_for_errors(issues)
         return histories
