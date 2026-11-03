@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from strategy.allocation_alpha import AllocationAlpha
 from strategy.alpha import Alpha
 from strategy.ema_alpha import ExponentialMovingAverageAlpha
 from strategy.sample_alpha import SampleAlpha
@@ -12,6 +13,7 @@ from strategy.sample_alpha import SampleAlpha
 STRATEGIES: dict[str, Callable[..., Alpha]] = {
     "sma_crossover": SampleAlpha,
     "ema_dip": ExponentialMovingAverageAlpha,
+    "allocation": AllocationAlpha,
 }
 
 

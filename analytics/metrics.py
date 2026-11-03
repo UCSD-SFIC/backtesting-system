@@ -283,6 +283,25 @@ def _extract_benchmark_returns(
     return backtest_df[candidate_column].slice(1) - 1
 
 
+def summarize_trading(backtest_df: pl.DataFrame, periods_per_year: float) -> dict[str, float]:
+    """Rebalance count, turnover, simulated costs, and average cash for a result."""
+    if "rebalance_turnover" not in backtest_df.columns or backtest_df.height == 0:
+        return {}
+
+    periods = backtest_df.group_by("rebalance_date").agg(
+        pl.col("rebalance_turnover").first(), pl.col("rebalance_cost").first()
+    )
+    years = backtest_df.height / periods_per_year
+    total_turnover = float(periods["rebalance_turnover"].sum())
+    return {
+        "rebalances": float(periods.height),
+        "average_turnover": total_turnover / periods.height,
+        "annual_turnover": total_turnover / years if years > 0 else 0.0,
+        "total_cost": float(periods["rebalance_cost"].sum()),
+        "average_cash_weight": float(cast(float, backtest_df["cash_weight"].mean())),
+    }
+
+
 def summarize_performance(
     backtest_df: pl.DataFrame,
     risk_free_rate: float = 0.02,
@@ -338,4 +357,5 @@ def summarize_performance(
             periods_per_year=periods_per_year,
         )
 
+    summary.update(summarize_trading(backtest_df, periods_per_year))
     return summary

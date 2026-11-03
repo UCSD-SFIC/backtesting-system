@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import inspect
 import os
 import sys
 from pathlib import Path
 from typing import Any, Literal
 
+import polars as pl
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from strategy.registry import STRATEGIES
@@ -32,6 +34,11 @@ class DataConfig(_StrictModel):
     validate_data: bool = True
 
 
+class ExecutionConfig(_StrictModel):
+    # Simulated cost per unit of turnover, in basis points of portfolio value.
+    cost_bps: float = Field(default=0.0, ge=0, le=500)
+
+
 class StrategyConfig(_StrictModel):
     name: str
     params: dict[str, Any] = Field(default_factory=dict)
@@ -46,6 +53,8 @@ class StrategyConfig(_StrictModel):
 
 class RunConfig(_StrictModel):
     tickers: list[str] = Field(min_length=1)
+    # When set, `tickers` was loaded from this CSV (a `ticker` column).
+    universe_file: str | None = None
     timespan: Timespan = "day"
     start: dt.date
     end: dt.date
@@ -53,6 +62,7 @@ class RunConfig(_StrictModel):
     risk_free_rate: float = Field(default=0.02, ge=-0.05, le=0.5)
     strategy: StrategyConfig
     data: DataConfig = Field(default_factory=DataConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
 
     @field_validator("tickers")
     @classmethod
@@ -70,10 +80,19 @@ class RunConfig(_StrictModel):
             raise ValueError("end must be after start")
         if self.benchmark is None:
             self.benchmark = self.tickers[0]
-        else:
-            self.benchmark = self.benchmark.strip().upper()
-            if self.benchmark not in self.tickers:
-                raise ValueError("benchmark must be one of the tickers")
+            return self
+
+        self.benchmark = self.benchmark.strip().upper()
+        if self.benchmark in self.tickers:
+            return self
+        # Strategies that accept a `benchmark` parameter fetch it for comparison
+        # without ever holding it, so it can sit outside the investable tickers.
+        parameters = inspect.signature(STRATEGIES[self.strategy.name]).parameters
+        if "benchmark" not in parameters:
+            raise ValueError(
+                "benchmark must be one of the tickers for strategy " + repr(self.strategy.name)
+            )
+        self.strategy.params.setdefault("benchmark", self.benchmark)
         return self
 
 
@@ -95,6 +114,12 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Ru
     with open(path, "rb") as file:
         raw: dict[str, Any] = tomllib.load(file)
 
+    universe_file = raw.get("universe_file")
+    if universe_file is not None:
+        if "tickers" in raw:
+            raise ValueError("set either tickers or universe_file, not both")
+        raw["tickers"] = load_universe(universe_file)
+
     for env_name, keys in ENV_OVERRIDES.items():
         value = os.getenv(env_name)
         if value:
@@ -105,6 +130,14 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Ru
             _set_dotted(raw, tuple(dotted_key.split(".")), value)
 
     return RunConfig.model_validate(raw)
+
+
+def load_universe(path: str | Path) -> list[str]:
+    """Read tickers from a CSV with a `ticker` column, in file order."""
+    universe = pl.read_csv(path, comment_prefix="#")
+    if "ticker" not in universe.columns:
+        raise ValueError(f"{path} must have a 'ticker' column")
+    return [str(ticker) for ticker in universe["ticker"].drop_nulls()]
 
 
 def _set_dotted(raw: dict[str, Any], keys: tuple[str, ...], value: Any) -> None:

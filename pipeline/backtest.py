@@ -35,8 +35,9 @@ def run_backtest(
     timespan: str,
     from_time: str,
     to_time: str,
+    cost_bps: float = 0.0,
 ) -> pl.DataFrame:
-    engine = BacktestEngine(data_provider)
+    engine = BacktestEngine(data_provider, cost_bps=cost_bps)
     return engine.run(alpha=alpha, timespan=timespan, from_time=from_time, to_time=to_time)
 
 

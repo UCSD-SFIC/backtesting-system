@@ -43,11 +43,20 @@ METRIC_ROWS = [
     ("periods_per_year", "Bars per year (annualization)", "{:.0f}"),
 ]
 
+TRADING_ROWS = [
+    ("rebalances", "Rebalances", "{:.0f}"),
+    ("average_turnover", "Average turnover per rebalance", "{:.2%}"),
+    ("annual_turnover", "Annual turnover", "{:.2%}"),
+    ("total_cost", "Total simulated costs", "{:.2%}"),
+    ("average_cash_weight", "Average cash weight", "{:.2%}"),
+]
+
 
 def format_metrics(metrics: dict[str, float], benchmark: str) -> str:
     rows = [
         (label.format(benchmark=benchmark), fmt.format(metrics[key]))
-        for key, label, fmt in METRIC_ROWS
+        for key, label, fmt in METRIC_ROWS + TRADING_ROWS
+        if key in metrics
     ]
     width = max(len(label) for label, _ in rows)
     return "\n".join(f"{label:<{width}}  {value:>10}" for label, value in rows)
@@ -95,7 +104,11 @@ def command_run(args: argparse.Namespace) -> int:
         config.strategy.params,
     )
 
-    result = run_backtest(provider, alpha, config.timespan, start, end)
+    # Fetch extra history before `start` so signals are ready on day one.
+    fetch_start = (config.start - alpha.warmup_period()).isoformat()
+    result = run_backtest(
+        provider, alpha, config.timespan, fetch_start, end, cost_bps=config.execution.cost_bps
+    )
     benchmark = config.benchmark or config.tickers[0]
     metrics = summarize_backtest(
         result, risk_free_rate=config.risk_free_rate, benchmark_ticker=benchmark
@@ -106,13 +119,23 @@ def command_run(args: argparse.Namespace) -> int:
         f"({config.timespan}, {start} to {end}, {config.data.provider})"
     )
     print(format_metrics(metrics, benchmark))
+    holdings = getattr(alpha, "holdings", None)
+    if holdings:
+        timestamp, latest = holdings[-1]
+        ranked = sorted(latest.items(), key=lambda item: -item[1])
+        print(f"\nLatest target holdings ({timestamp:%Y-%m-%d}, {len(ranked)} names):")
+        print(", ".join(f"{ticker} {weight:.1%}" for ticker, weight in ranked))
 
     if args.save_plot or not args.no_plot:
         import matplotlib.pyplot as plt
 
         from visualization.plots import create_backtest_figure
 
-        figure = create_backtest_figure(result, config.tickers)
+        # Large universes plot against the benchmark only.
+        if len(config.tickers) > 5:
+            figure = create_backtest_figure(result, [benchmark], show_components=False)
+        else:
+            figure = create_backtest_figure(result, config.tickers)
         if args.save_plot:
             figure.savefig(args.save_plot, dpi=150, bbox_inches="tight")
             print(f"Saved plot to {args.save_plot}")

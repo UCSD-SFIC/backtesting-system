@@ -1,0 +1,32 @@
+# Momentum / 52-week-high allocation on a sample large-cap universe.
+#   python -m pipeline.cli run --config configs/allocation.toml
+#
+# Each month, 70% of capital goes equally into the top 10 stocks by 12-1 month
+# momentum and 30% into the top 10 by closeness to their 52-week high. A stock
+# in both sleeves gets both weights, capped at 10%. History before `start` is
+# fetched automatically to warm up the signals.
+
+universe_file = "universes/us_large_cap_sample.csv"   # relative to where you run the CLI
+timespan = "day"
+start = 2015-01-01
+end = 2025-12-31
+benchmark = "SPY"         # fetched for comparison only; never held
+
+[strategy]
+name = "allocation"
+
+[strategy.params]
+sleeves = { momentum = 0.7, high_52_week = 0.3 }
+top_n = 10                # names per sleeve
+max_weight = 0.10         # per-stock cap after combining sleeves; omit for none
+rebalance = "monthly"     # monthly, quarterly
+lookback = 252            # momentum lookback, in bars
+skip = 21                 # skip the most recent month
+high_window = 252         # 52-week high window, in bars
+min_price = 5.0           # skip stocks below this price
+
+[execution]
+cost_bps = 10             # per unit of turnover: commission + spread + slippage
+
+[data]
+provider = "yfinance"
