@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import pytest
 import polars as pl
+import pytest
 
 from analytics.metrics import (
     calculate_alpha,
+    calculate_annual_variance,
+    calculate_annualized_volatility,
     calculate_average_loss,
     calculate_average_win,
-    calculate_annualized_volatility,
-    calculate_annual_variance,
     calculate_beta,
     calculate_compounding_annual_return,
     calculate_expectancy,
@@ -20,7 +20,6 @@ from analytics.metrics import (
     calculate_win_rate,
     summarize_performance,
 )
-
 
 # Tests for performance metric edge cases and summary output.
 
@@ -108,9 +107,11 @@ def test_distribution_and_benchmark_metrics_match_expected_values():
     assert calculate_profit_loss_ratio(growth) == pytest.approx(2.0)
     assert calculate_expectancy(growth) == pytest.approx(0.0375)
     assert calculate_beta(growth, benchmark_returns) == pytest.approx(2.0)
+    benchmark_growth = pl.Series([1.0, 1.05, 1.02375, 1.126125, 1.06981875])
     assert calculate_alpha(growth, benchmark_returns, risk_free_rate=0.0) == pytest.approx(
         calculate_compounding_annual_return(growth)
-        - (calculate_beta(growth, benchmark_returns) * calculate_compounding_annual_return(pl.Series([1.0, 1.05, 1.02375, 1.126125, 1.06981875])))
+        - calculate_beta(growth, benchmark_returns)
+        * calculate_compounding_annual_return(benchmark_growth)
     )
     assert calculate_compounding_annual_return(growth) == pytest.approx(
         (growth[-1] ** (252 / 4)) - 1

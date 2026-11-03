@@ -45,8 +45,10 @@ def _yfinance_frame(index: pd.DatetimeIndex, ticker: str) -> pd.DataFrame:
         "Open": [9.5 + i for i in range(n)],
         "Volume": [100] * n,
     }
-    columns = pd.MultiIndex.from_tuples([(name, ticker) for name in values], names=["Price", "Ticker"])
-    df = pd.DataFrame(list(zip(*values.values())), index=index, columns=columns)
+    columns = pd.MultiIndex.from_tuples(
+        [(name, ticker) for name in values], names=["Price", "Ticker"]
+    )
+    df = pd.DataFrame(list(zip(*values.values(), strict=True)), index=index, columns=columns)
     df.index.name = "Datetime" if index.tz is not None else "Date"
     return df
 
@@ -86,7 +88,8 @@ def test_yfinance_two_hour_bars_aggregate_ohlcv(fake_yfinance):
     index = pd.date_range("2024-01-02 14:00", periods=4, freq="h", tz="UTC")
     frames["SPY"] = _yfinance_frame(index, "SPY")
 
-    history = YFinanceDataProvider().get_history(["SPY"], "2hour", "2024-01-02", "2024-01-02")["SPY"]
+    provider = YFinanceDataProvider()
+    history = provider.get_history(["SPY"], "2hour", "2024-01-02", "2024-01-02")["SPY"]
 
     assert history.height == 2
     assert history["open"].to_list() == [9.5, 11.5]

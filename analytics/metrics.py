@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import math
-from typing import Optional
+from typing import cast
 
 import polars as pl
-
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -55,7 +54,7 @@ def calculate_annualized_volatility(growth: pl.Series) -> float:
     if std is None:
         return 0.0
 
-    return float(std * math.sqrt(TRADING_DAYS_PER_YEAR))
+    return float(cast(float, std) * math.sqrt(TRADING_DAYS_PER_YEAR))
 
 
 def calculate_annual_variance(growth: pl.Series) -> float:
@@ -206,9 +205,9 @@ def calculate_alpha(
 
 def _extract_benchmark_returns(
     backtest_df: pl.DataFrame,
-    benchmark_ticker: Optional[str] = None,
-) -> Optional[pl.Series]:
-    candidate_column: Optional[str] = None
+    benchmark_ticker: str | None = None,
+) -> pl.Series | None:
+    candidate_column: str | None = None
     if benchmark_ticker is not None:
         explicit_column = f"{benchmark_ticker}_return"
         if explicit_column in backtest_df.columns:
@@ -238,10 +237,10 @@ def _extract_benchmark_returns(
 def summarize_performance(
     backtest_df: pl.DataFrame,
     risk_free_rate: float = 0.02,
-    benchmark_ticker: Optional[str] = None,
+    benchmark_ticker: str | None = None,
 ) -> dict[str, float]:
     growth = backtest_df["overall_growth"]
-    total_return = float(backtest_df["overall_cumulative_return"].last())
+    total_return = float(backtest_df["overall_cumulative_return"][-1])
     benchmark_returns = _extract_benchmark_returns(
         backtest_df,
         benchmark_ticker=benchmark_ticker,

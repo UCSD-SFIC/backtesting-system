@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import polars as pl
-from typing import Optional
 
 from data.providers import DataProvider
 from engine.history import combine_ticker_histories
-from engine.weights import build_weight_frame
 from engine.utils import timeit
+from engine.weights import build_weight_frame
 from strategy.alpha import Alpha
 
 
 class BacktestEngine:
-    def __init__(self, data_provider: Optional[DataProvider]):
+    def __init__(self, data_provider: DataProvider | None):
         self._data_provider = data_provider
 
     def add_exponential_moving_average(

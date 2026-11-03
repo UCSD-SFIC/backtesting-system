@@ -3,12 +3,10 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from pathlib import Path
-from typing import Optional
 
 import polars as pl
 
 from data.providers import DataProvider
-
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +29,7 @@ class CachedDataProvider(DataProvider):
         provider: DataProvider,
         cache_dir: str | Path = "history_cache",
         refresh: bool = False,
-        today: Optional[dt.date] = None,
+        today: dt.date | None = None,
     ):
         self._provider = provider
         self.name = provider.name

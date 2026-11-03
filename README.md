@@ -81,3 +81,18 @@ Run the exponential moving average sample alpha:
 ```bash
 python -m pipeline.run_ema_sample
 ```
+
+## Development checks
+
+CI runs these on every pull request; run them locally before pushing:
+
+```bash
+ruff check .                                   # lint (add --fix for safe autofixes)
+pyright                                        # type check
+python -m pytest --cov --cov-fail-under=80     # tests with coverage gate
+python -m benchmarks.bench_engine              # engine timings, 100 tickers x 5 years
+```
+
+`benchmarks.bench_engine` uses seeded synthetic data, so before/after timings
+for an engine change are comparable on the same machine. Pass `--tickers` and
+`--days` to try larger universes.

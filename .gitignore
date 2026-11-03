@@ -5,3 +5,5 @@
 __pycache__
 history_cache
 uv.lock
+.coverage
+benchmark.json

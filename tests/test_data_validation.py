@@ -6,7 +6,6 @@ import pytest
 from data.schema import normalize_ohlcv
 from data.validation import DataValidationError, raise_for_errors, validate_history
 
-
 # Tests for the data-quality checks run on every provider fetch.
 
 DAY_MS = 24 * 60 * 60 * 1000
