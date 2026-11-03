@@ -121,7 +121,11 @@ class BacktestEngine:
             )
         )
 
-        result = result.join(aggregated_period, on="rebalance_date", how="right")
+        # A right join does not keep the left frame's row order, so restore time
+        # order before any cumulative calculation.
+        result = result.join(aggregated_period, on="rebalance_date", how="right").sort(
+            "timestamp"
+        )
 
         result = (
             result.with_columns(
