@@ -80,6 +80,25 @@ def test_sleeves_split_capital_between_signals():
     assert alpha.target_weights(prices) == pytest.approx([0.7, 0.3, 0.0])
 
 
+def test_each_sleeve_can_select_a_different_number_of_stocks():
+    prices = np.array([[10.0, 10.0, 10.0], [12.0, 8.0, 10.0],
+                       [16.0, 9.0, 10.0], [15.0, 11.0, 10.0]])
+    alpha = make_alpha(
+        ["A", "B", "C"], sleeves={"momentum": 0.3, "high_52_week": 0.7},
+        top_n=1, sleeve_top_n={"momentum": 1, "high_52_week": 2},
+    )
+    assert alpha.target_weights(prices) == pytest.approx([0.3, 0.35, 0.35])
+
+
+def test_historical_universe_excludes_inactive_stock(tmp_path):
+    membership = tmp_path / "members.csv"
+    membership.write_text("ticker,start_date,end_date\nA,2020-01-01,2023-12-31\nB,2020-01-01,\n")
+    alpha = make_alpha(["A", "B"], sleeves={"momentum": 1.0}, top_n=1,
+                       membership_file=str(membership))
+    prices = np.array([[10.0, 10.0], [12.0, 10.1], [15.0, 10.2], [20.0, 10.3]])
+    assert alpha.target_weights(prices, on_date=dt.date(2024, 1, 2)) == pytest.approx([0, 1])
+
+
 def test_same_pick_in_both_sleeves_adds_up_and_respects_cap():
     prices = np.array([[10.0, 10.0], [11.0, 10.0], [12.0, 10.0], [13.0, 10.0]])
 

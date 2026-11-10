@@ -1,0 +1,27 @@
+# Approximates the supplied SFIC notebook's default signal parameters.
+# The included 50-stock universe is a current-constituents sample, so this
+# does not reproduce the notebook's historical portfolio or remove survivor bias.
+universe_file = "universes/us_large_cap_sample.csv"
+timespan = "day"
+start = 2022-01-01
+end = 2025-12-31
+benchmark = "SPY"
+
+[strategy]
+name = "allocation"
+
+[strategy.params]
+sleeves = { momentum = 0.30, high_52_week = 0.70 }
+top_n = 10
+sleeve_top_n = { momentum = 20, high_52_week = 10 }
+rebalance = "monthly"
+lookback = 180
+skip = 20
+high_window = 365
+min_price = 5.0
+
+[execution]
+cost_bps = 10
+
+[data]
+provider = "yfinance"

@@ -19,8 +19,14 @@ from pydantic import ValidationError
 from data.cache import CachedDataProvider
 from data.factory import PROVIDER_NAMES, create_data_provider, create_raw_provider
 from data.validation import DataValidationError, validate_histories
+from experiments.store import save_run
 from pipeline.backtest import run_backtest, summarize_backtest
 from pipeline.config import RunConfig, load_config
+from pipeline.research_cli import (
+    command_compare_runs,
+    command_paper_rebalance,
+    command_scenario_analysis,
+)
 from strategy.registry import build_strategy
 
 # (metric key, label, format) in the order they are printed.
@@ -126,6 +132,17 @@ def command_run(args: argparse.Namespace) -> int:
         print(f"\nLatest target holdings ({timestamp:%Y-%m-%d}, {len(ranked)} names):")
         print(", ".join(f"{ticker} {weight:.1%}" for ticker, weight in ranked))
 
+    if args.save_run:
+        price_columns = ["timestamp", *[name for name in result.columns if name.endswith("_close")]]
+        record = save_run(
+            args.save_run,
+            config=config.model_dump(mode="json"),
+            price_history=result.select(price_columns),
+            result=result,
+            metrics=metrics,
+        )
+        print(f"Saved run: {record.run_id}")
+
     if args.save_plot or not args.no_plot:
         import matplotlib.pyplot as plt
 
@@ -182,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_config_arguments(run)
     run.add_argument("--no-plot", action="store_true", help="do not open the plot window")
     run.add_argument("--save-plot", metavar="PATH", help="save the plot to an image file")
+    run.add_argument("--save-run", metavar="DIR", help="save results and configuration")
     run.set_defaults(handler=command_run)
 
     validate = subcommands.add_parser(
@@ -189,6 +207,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_config_arguments(validate)
     validate.set_defaults(handler=command_validate_data)
+
+    paper = subcommands.add_parser("paper-rebalance", help="export a whole-share paper rebalance")
+    for name in ("weights", "prices", "holdings", "output"):
+        paper.add_argument(f"--{name}", required=True)
+    paper.add_argument("--cash", required=True, type=float)
+    paper.add_argument("--cost-bps", type=float, default=0.0)
+    paper.set_defaults(handler=command_paper_rebalance)
+
+    scenario = subcommands.add_parser("scenario-analysis", help="export scenario sensitivity table")
+    for name in ("portfolios", "shocks", "output"):
+        scenario.add_argument(f"--{name}", required=True)
+    scenario.set_defaults(handler=command_scenario_analysis)
+
+    compare = subcommands.add_parser("compare-runs", help="list saved runs and returns")
+    compare.add_argument("--run-dir", default="runs")
+    compare.set_defaults(handler=command_compare_runs)
 
     return parser
 

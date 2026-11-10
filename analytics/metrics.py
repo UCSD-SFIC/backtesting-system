@@ -171,7 +171,7 @@ def calculate_average_win(growth: pl.Series) -> float:
         return 0.0
 
     mean = wins.mean()
-    return float(mean) if mean is not None else 0.0
+    return float(cast(float, mean)) if mean is not None else 0.0
 
 
 def calculate_average_loss(growth: pl.Series) -> float:
@@ -181,7 +181,7 @@ def calculate_average_loss(growth: pl.Series) -> float:
         return 0.0
 
     mean = losses.mean()
-    return float(mean) if mean is not None else 0.0
+    return float(cast(float, mean)) if mean is not None else 0.0
 
 
 def calculate_profit_loss_ratio(growth: pl.Series) -> float:
@@ -227,7 +227,7 @@ def calculate_beta(growth: pl.Series, benchmark_returns: pl.Series) -> float:
         / (aligned_length - 1)
     )
 
-    return float(covariance / benchmark_variance)
+    return float(cast(float, covariance) / cast(float, benchmark_variance))
 
 
 def calculate_alpha(

@@ -11,6 +11,7 @@ import polars as pl
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from strategy.registry import STRATEGIES
+from strategy.universe import PointInTimeUniverse
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -119,6 +120,18 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Ru
         if "tickers" in raw:
             raise ValueError("set either tickers or universe_file, not both")
         raw["tickers"] = load_universe(universe_file)
+        columns = set(pl.read_csv(universe_file, comment_prefix="#", n_rows=0).columns)
+        dated = {"start_date", "end_date"}
+        if columns & dated:
+            if not dated <= columns:
+                raise ValueError("dated universe CSV needs start_date and end_date columns")
+            if raw.get("strategy", {}).get("name") != "allocation":
+                raise ValueError("dated universe CSV requires allocation strategy")
+            PointInTimeUniverse.from_csv(universe_file)
+            raw["tickers"] = list(dict.fromkeys(raw["tickers"]))
+            raw.setdefault("strategy", {}).setdefault("params", {})["membership_file"] = str(
+                universe_file
+            )
 
     for env_name, keys in ENV_OVERRIDES.items():
         value = os.getenv(env_name)

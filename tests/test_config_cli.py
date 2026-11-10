@@ -150,6 +150,20 @@ def test_cli_run_prints_metrics_and_saves_plot(tmp_path, monkeypatch, capsys):
     assert plot_path.stat().st_size > 0
 
 
+def test_cli_run_can_save_reproducible_result(tmp_path, monkeypatch):
+    from experiments.store import list_runs, load_frame
+
+    monkeypatch.setattr(cli, "create_data_provider", lambda *args, **kwargs: TrendProvider())
+    run_dir = tmp_path / "runs"
+    code = cli.main(["run", "--config", str(write_config(tmp_path)), "--no-plot",
+                     "--save-run", str(run_dir)])
+    assert code == 0
+    records = list_runs(run_dir)
+    assert len(records) == 1
+    assert "total_return" in records[0].metrics
+    assert not load_frame(records[0], "result").is_empty()
+
+
 def test_cli_validate_data_reports_errors_with_exit_code(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "create_raw_provider", lambda name: TrendProvider(bad=True))
     config = write_config(tmp_path, BASE_CONFIG + '\n[data]\ncache_dir = "' + str(tmp_path) + '"\n')
@@ -184,6 +198,21 @@ name = "allocation"
 [execution]
 cost_bps = 15
 """
+
+
+def test_dated_universe_file_is_passed_to_allocation_strategy(tmp_path):
+    from pipeline.config import load_config
+
+    universe = tmp_path / "universe.csv"
+    universe.write_text("ticker,start_date,end_date\nA,2020-01-01,2022-01-01\nB,2020-01-01,\nA,2023-01-01,\n")
+    path = tmp_path / "dated.toml"
+    path.write_text(
+        f'universe_file = "{universe}"\nstart = 2024-01-01\nend = 2024-12-31\n'
+        '[strategy]\nname = "allocation"\n'
+    )
+    config = load_config(path)
+    assert config.tickers == ["A", "B"]
+    assert config.strategy.params["membership_file"] == str(universe)
 
 
 def test_universe_file_and_outside_benchmark(tmp_path):

@@ -8,6 +8,7 @@ import polars as pl
 
 from strategy.alpha import Alpha
 from strategy.signals import SIGNALS, cap_weights, top_n
+from strategy.universe import PointInTimeUniverse
 
 REBALANCE_MONTHS = {
     "monthly": set(range(1, 13)),
@@ -41,6 +42,7 @@ class AllocationAlpha(Alpha):
         end: str,
         sleeves: dict[str, float] | None = None,
         top_n: int = 20,
+        sleeve_top_n: dict[str, int] | None = None,
         max_weight: float | None = None,
         rebalance: str = "monthly",
         lookback: int = 252,
@@ -48,6 +50,7 @@ class AllocationAlpha(Alpha):
         high_window: int = 252,
         min_price: float = 5.0,
         benchmark: str | None = None,
+        membership_file: str | None = None,
     ):
         sleeves = sleeves or {"momentum": 0.7, "high_52_week": 0.3}
         unknown = set(sleeves) - set(SIGNALS)
@@ -59,6 +62,11 @@ class AllocationAlpha(Alpha):
             raise ValueError("sleeve shares must add up to more than 0 and at most 1")
         if top_n < 1:
             raise ValueError("top_n must be at least 1")
+        if sleeve_top_n is not None and (
+            set(sleeve_top_n) - set(sleeves)
+            or any(count < 1 for count in sleeve_top_n.values())
+        ):
+            raise ValueError("sleeve_top_n must use active sleeves and positive counts")
         if rebalance not in REBALANCE_MONTHS:
             raise ValueError(f"rebalance must be one of {sorted(REBALANCE_MONTHS)}")
         if max_weight is not None and not 0 < max_weight <= 1:
@@ -72,8 +80,12 @@ class AllocationAlpha(Alpha):
         self.end = end
         self.investable = list(ticker)
         self.benchmark = benchmark
+        self.membership = (
+            PointInTimeUniverse.from_csv(membership_file) if membership_file else None
+        )
         self.sleeves = sleeves
         self.top_n = top_n
+        self.sleeve_top_n = dict(sleeve_top_n or {})
         self.max_weight = max_weight
         self.rebalance = rebalance
         self.lookback = lookback
@@ -117,7 +129,7 @@ class AllocationAlpha(Alpha):
             return True
         return new_month and timestamp.month in REBALANCE_MONTHS[self.rebalance]
 
-    def target_weights(self, prices: np.ndarray) -> np.ndarray:
+    def target_weights(self, prices: np.ndarray, on_date: dt.date | None = None) -> np.ndarray:
         """Target weights over the investable universe from a price matrix."""
         latest = prices[-1]
         weights = np.zeros(prices.shape[1])
@@ -127,7 +139,12 @@ class AllocationAlpha(Alpha):
             else:
                 scores = SIGNALS[name](prices, self.high_window)
             scores = np.where(latest >= self.min_price, scores, np.nan)
-            picks = top_n(scores, self.top_n)
+            if self.membership is not None and on_date is not None:
+                eligible = set(self.membership.eligible_tickers(on_date))
+                scores = np.where(
+                    [ticker in eligible for ticker in self.investable], scores, np.nan
+                )
+            picks = top_n(scores, self.sleeve_top_n.get(name, self.top_n))
             if len(picks):
                 weights[picks] += share / len(picks)
         if self.max_weight is not None:
@@ -143,7 +160,7 @@ class AllocationAlpha(Alpha):
         if not self._rebalanced:
             return
 
-        target = self.target_weights(np.vstack(self._history))
+        target = self.target_weights(np.vstack(self._history), timestamp.date())
         self._weights = [float(w) for w in target] + [0.0] * (
             len(self._tickers) - len(self.investable)
         )

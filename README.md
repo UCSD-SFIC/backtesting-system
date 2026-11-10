@@ -13,6 +13,10 @@ The project is split into modular layers:
 - `pipeline`: runnable backtest workflow entrypoints
 - `analytics`: performance and risk metrics
 - `visualization`: result plotting
+- `paper`: whole-share paper rebalance recommendations and CSV exports
+- `research`: portfolio comparisons and scenario sensitivity tables
+- `experiments`: versioned local run artifacts and review states
+- `web`: local browser dashboard and API
 
 ## Provider Switching
 
@@ -86,6 +90,8 @@ error instead of being silently ignored.
 python -m pipeline.cli run --config configs/sma_crossover.toml
 python -m pipeline.cli run --config configs/ema_dip.toml --no-plot --save-plot ema.png
 python -m pipeline.cli validate-data --config configs/sma_crossover.toml
+python -m pipeline.cli run --config configs/allocation.toml --no-plot --save-run runs
+python -m pipeline.cli compare-runs --run-dir runs
 ```
 
 `run` prints every metric and opens the plot. `validate-data` fetches the
@@ -114,16 +120,18 @@ python -m pipeline.cli run --config configs/allocation.toml
 
 - **Universe:** `universe_file` points to a CSV with a `ticker` column (use it
   instead of `tickers`). `universes/us_large_cap_sample.csv` lists 50 current
-  large caps, so it is survivorship-biased; use point-in-time constituents for
-  real research. Stocks with missing history are skipped until they have
-  enough data.
+  large caps, so it is survivorship-biased. For historical membership, provide
+  `ticker,start_date,end_date` columns in the universe CSV; blank `end_date`
+  means currently eligible. Re-entry can use another row. Stocks with missing
+  history are skipped until they have enough data.
 - **Signals** (`strategy/signals.py`): 12-1 month momentum (`lookback`,
   `skip`) and price relative to the 52-week high (`high_window`), both in bars.
   Stocks below `min_price` are not ranked.
 - **Sleeves:** `sleeves = { momentum = 0.7, high_52_week = 0.3 }` splits capital.
   Each sleeve holds its top `top_n` names at equal weight; a stock in both
   sleeves gets both weights. `max_weight` caps any one stock and spreads the
-  excess over the other holdings.
+  excess over the other holdings. `sleeve_top_n` can set a different stock
+  count for each sleeve.
 - **Schedule:** the first trade is on the first bar on or after `start`, then
   on the first bar of each month (`rebalance = "monthly"`) or quarter
   (`"quarterly"`). Positions drift with prices between rebalances. Signals use
@@ -133,11 +141,42 @@ python -m pipeline.cli run --config configs/allocation.toml
   |target - drifted weight|). The run reports rebalances, average and annual
   turnover, total simulated costs, average cash, and the latest target
   holdings.
+- **Missing held prices:** a run fails if a held ticker has a missing return;
+  it does not assume a delisted stock held its last price forever.
 - **Benchmark:** `benchmark` can be outside the universe; it is fetched for
   comparison and never held.
 
 Any strategy can trade on a schedule by overriding `Alpha.should_rebalance()`
 and can request warm-up history with `Alpha.warmup_period()`.
+
+`configs/sfic_notebook_approx.toml` mirrors the supplied allocation notebook's
+default signal windows, 30/70 sleeve weights, and 20/10 stock counts. It uses
+the included current-stock sample and therefore cannot reproduce the notebook's
+historical holdings or remove survivorship bias.
+
+## Paper and scenario research
+
+Create JSON files for target weights and current prices, such as
+`{"AAPL": 0.5, "MSFT": 0.5}`, and a holdings CSV with `ticker,shares` columns.
+Then run:
+
+```bash
+python -m pipeline.cli paper-rebalance --weights weights.json --prices prices.json --holdings holdings.csv --cash 1000 --output paper-packet.csv
+python -m pipeline.cli scenario-analysis --portfolios portfolios.json --shocks shocks.json --output sensitivity.csv
+```
+
+`portfolios.json` maps portfolio names to ticker weights; `shocks.json` maps
+scenario names to assumed per-ticker returns in decimals. The paper packet
+contains suggested whole-share changes and estimated costs, never orders.
+
+For a local browser interface:
+
+```bash
+uvicorn web.app:app --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000` to run saved configurations and review results.
+The dashboard is intended for use on your own computer.
 
 ## Development checks
 
