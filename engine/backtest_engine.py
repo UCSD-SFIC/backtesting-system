@@ -95,8 +95,23 @@ class BacktestEngine:
             strategy="backward",
         ).drop_nulls(subset=["rebalance_date"])
 
+        missing_held = result.select(
+            [
+                (pl.col(f"{ticker}_return").is_null() & (pl.col(ticker) > 0))
+                .any()
+                .alias(ticker)
+                for ticker in tickers
+            ]
+        ).collect().row(0)
+        for ticker, missing in zip(tickers, missing_held, strict=True):
+            if missing:
+                raise ValueError(
+                    f"missing return for held ticker {ticker}; "
+                    "supply a delisting policy or complete prices"
+                )
+
         # A ticker with no bar at a timestamp (not listed yet, delisted, or a
-        # missing print) does not move there; its next return spans the gap.
+        # missing print) is flat only when it is not currently held.
         result = result.with_columns(
             [pl.col(f"{ticker}_return").fill_null(1.0) for ticker in tickers]
         )

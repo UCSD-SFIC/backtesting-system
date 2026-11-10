@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime as dt
+
 import polars as pl
 import pytest
 
@@ -7,6 +9,16 @@ from data.providers import DataProvider
 from engine.backtest_engine import BacktestEngine
 from pipeline.backtest import run_backtest
 from strategy.alpha import Alpha
+
+
+def test_missing_bar_for_held_asset_is_not_silently_flat():
+    history = pl.DataFrame({
+        "timestamp": [dt.datetime(2024, 1, 1), dt.datetime(2024, 1, 2)],
+        "A_return": [1.0, None], "A_close": [10.0, None],
+    })
+    weights = pl.DataFrame({"timestamp": [dt.datetime(2024, 1, 1)], "A": [1.0]})
+    with pytest.raises(ValueError, match="missing return.*A"):
+        BacktestEngine(None).run_portfolio_backtest(history, weights, ["A"])
 
 # Tests for scheduled rebalancing, turnover, trading costs, and tickers whose
 # history does not cover the whole backtest. Expected values are hand-computed.
