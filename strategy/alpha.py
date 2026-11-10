@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 from abc import ABC, abstractmethod
 
 import polars as pl
@@ -23,3 +24,20 @@ class Alpha(ABC):
         """
         Return ticker universe in a deterministic order.
         """
+
+    def should_rebalance(self) -> bool:
+        """
+        Whether the weights from the latest update are a new rebalance.
+
+        The default rebalances to the target weights on every bar. Strategies
+        that trade on a schedule return False between rebalance dates so
+        positions drift with prices instead of being reset each bar.
+        """
+        return True
+
+    def warmup_period(self) -> dt.timedelta:
+        """
+        How much history before the start date the strategy needs for its
+        signals. Runners fetch from `start - warmup_period()`.
+        """
+        return dt.timedelta(0)

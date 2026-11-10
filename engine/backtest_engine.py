@@ -10,8 +10,15 @@ from strategy.alpha import Alpha
 
 
 class BacktestEngine:
-    def __init__(self, data_provider: DataProvider | None):
+    def __init__(self, data_provider: DataProvider | None, cost_bps: float = 0.0):
+        """
+        `cost_bps` is the simulated trading cost per unit of turnover, in basis
+        points of portfolio value (commission plus spread and slippage).
+        """
+        if cost_bps < 0:
+            raise ValueError("cost_bps cannot be negative")
         self._data_provider = data_provider
+        self._cost_bps = cost_bps
 
     def add_exponential_moving_average(
         self,
@@ -68,7 +75,9 @@ class BacktestEngine:
         history: pl.DataFrame,
         weights: pl.DataFrame,
         tickers: list[str],
+        cost_bps: float | None = None,
     ) -> pl.DataFrame:
+        cost_rate = (self._cost_bps if cost_bps is None else cost_bps) / 10_000
         combined_history = history.lazy()
         weights_lazy = (
             weights.lazy()
@@ -84,7 +93,13 @@ class BacktestEngine:
             left_on="timestamp",
             right_on="rebalance_date",
             strategy="backward",
-        ).drop_nulls()
+        ).drop_nulls(subset=["rebalance_date"])
+
+        # A ticker with no bar at a timestamp (not listed yet, delisted, or a
+        # missing print) does not move there; its next return spans the gap.
+        result = result.with_columns(
+            [pl.col(f"{ticker}_return").fill_null(1.0) for ticker in tickers]
+        )
 
         for ticker in tickers:
             result = result.with_columns(
@@ -108,16 +123,52 @@ class BacktestEngine:
             .alias("period_total_weighted")
         )
 
-        aggregated_period = (
+        # One row per rebalance period. Turnover is the traded fraction of the
+        # portfolio: target weights versus the previous period's drifted weights.
+        period_end = (
             result.group_by("rebalance_date")
-            .agg(pl.col("period_total_weighted").last())
+            .agg(
+                pl.col("period_total_weighted").last(),
+                *[pl.col(ticker).first() for ticker in tickers],
+                *[pl.col(f"{ticker}_period_return").last() for ticker in tickers],
+            )
             .sort("rebalance_date")
+        )
+        drifted = [
+            pl.col(ticker)
+            .mul(pl.col(f"{ticker}_period_return"))
+            .truediv(pl.col("period_total_weighted"))
+            .shift()
+            .fill_null(0.0)
+            for ticker in tickers
+        ]
+        aggregated_period = (
+            period_end.with_columns(
+                pl.sum_horizontal(
+                    [
+                        (pl.col(ticker) - drift).abs()
+                        for ticker, drift in zip(tickers, drifted, strict=True)
+                    ]
+                ).alias("rebalance_turnover")
+            )
+            .with_columns(
+                pl.col("rebalance_turnover").mul(cost_rate).alias("rebalance_cost"),
+            )
+            .with_columns(pl.lit(1.0).sub(pl.col("rebalance_cost")).alias("cost_factor"))
             .with_columns(
                 pl.col("period_total_weighted")
+                .mul(pl.col("cost_factor"))
                 .shift()
                 .fill_null(1)
                 .cum_prod()
                 .alias("previous_period_last")
+            )
+            .select(
+                "rebalance_date",
+                "rebalance_turnover",
+                "rebalance_cost",
+                "cost_factor",
+                "previous_period_last",
             )
         )
 
@@ -139,6 +190,7 @@ class BacktestEngine:
             )
             .with_columns(
                 pl.col("period_total_weighted")
+                .mul(pl.col("cost_factor"))
                 .mul(pl.col("previous_period_last"))
                 .alias("overall_growth")
             )
