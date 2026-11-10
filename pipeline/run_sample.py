@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 import os
 
-from data import PolygonDataProvider, YFinanceDataProvider
+from data import create_data_provider
 from pipeline import plot_backtest, run_backtest, summarize_backtest
 from strategy import SampleAlpha
 
@@ -9,16 +9,7 @@ from strategy import SampleAlpha
 def main() -> None:
     load_dotenv()
 
-    provider_name = os.getenv("DATA_PROVIDER", "yfinance").lower()
-    if provider_name == "polygon":
-        api_key = os.getenv("POLYGON_API_KEY")
-        if api_key is None:
-            raise ValueError("POLYGON_API_KEY is not set in environment variables")
-        data_provider = PolygonDataProvider(api_key)
-    elif provider_name == "yfinance":
-        data_provider = YFinanceDataProvider()
-    else:
-        raise ValueError("DATA_PROVIDER must be one of: polygon, yfinance")
+    data_provider = create_data_provider(os.getenv("DATA_PROVIDER", "yfinance"))
 
     tickers = ["SPY", "SH"]
     alpha = SampleAlpha("US", "day", tickers, "2024-01-01", "2024-12-06")
