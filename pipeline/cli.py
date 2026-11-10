@@ -40,6 +40,7 @@ METRIC_ROWS = [
     ("expectancy", "Expectancy", "{:.2%}"),
     ("beta", "Beta vs {benchmark}", "{:.3f}"),
     ("alpha", "Alpha vs {benchmark}", "{:.2%}"),
+    ("periods_per_year", "Bars per year (annualization)", "{:.0f}"),
 ]
 
 

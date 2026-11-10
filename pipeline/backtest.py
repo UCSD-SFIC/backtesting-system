@@ -44,11 +44,13 @@ def summarize_backtest(
     backtest_df: pl.DataFrame,
     risk_free_rate: float = 0.02,
     benchmark_ticker: str | None = None,
+    periods_per_year: float | None = None,
 ) -> dict[str, float]:
     return summarize_performance(
         backtest_df,
         risk_free_rate=risk_free_rate,
         benchmark_ticker=benchmark_ticker,
+        periods_per_year=periods_per_year,
     )
 
 
