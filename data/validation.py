@@ -7,7 +7,6 @@ import polars as pl
 
 from data.schema import OHLCV_COLUMNS, PRICE_COLUMNS
 
-
 Severity = Literal["error", "warning"]
 
 # Largest calendar gap between consecutive bars that is still normal for the

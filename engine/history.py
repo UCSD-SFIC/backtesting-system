@@ -3,18 +3,22 @@ from __future__ import annotations
 import polars as pl
 
 
-def _select_ticker_history(ticker: str, history: pl.DataFrame) -> pl.LazyFrame:
-    return history.lazy().select(
+def _select_ticker_history(ticker: str, history: pl.DataFrame) -> pl.DataFrame:
+    # Returns are computed on each ticker's own bars before alignment, so a
+    # ticker that is missing on a date gets a null return there, not a gap fill.
+    return history.select(
         [
             pl.from_epoch(pl.col("timestamp"), time_unit="ms")
             .cast(pl.Datetime("us"))
             .alias("timestamp"),
-            pl.col("close").alias(f"{ticker}_close"),
+            pl.lit(ticker).alias("ticker"),
+            pl.col("close").cast(pl.Float64).alias("close"),
             pl.col("close")
+            .cast(pl.Float64)
             .pct_change()
             .add(1)
             .fill_null(1)
-            .alias(f"{ticker}_return"),
+            .alias("return"),
         ]
     )
 
@@ -25,20 +29,31 @@ def combine_ticker_histories(history: dict[str, pl.DataFrame]) -> pl.DataFrame:
     if not tickers:
         raise ValueError("history cannot be empty")
 
-    first_ticker = tickers[0]
-    base_df = _select_ticker_history(first_ticker, history[first_ticker])
+    # One concat + pivot instead of a chain of full joins: the join chain grows
+    # quadratically with the number of tickers.
+    long = pl.concat([_select_ticker_history(ticker, history[ticker]) for ticker in tickers])
+    closes = long.pivot(on="ticker", index="timestamp", values="close")
+    returns = long.pivot(on="ticker", index="timestamp", values="return")
 
-    for ticker in tickers[1:]:
-        right_timestamp = f"timestamp_{ticker}_right"
-        base_df = (
-            base_df.join(
-                _select_ticker_history(ticker, history[ticker]),
-                on="timestamp",
-                how="full",
-                suffix=f"_{ticker}_right",
-            )
-            .with_columns(pl.coalesce("timestamp", right_timestamp).alias("timestamp"))
-            .drop(right_timestamp)
+    return (
+        closes.select(
+            "timestamp",
+            *[pl.col(ticker).alias(f"{ticker}_close") for ticker in tickers],
         )
-
-    return base_df.collect().sort("timestamp")
+        .join(
+            returns.select(
+                "timestamp",
+                *[pl.col(ticker).alias(f"{ticker}_return") for ticker in tickers],
+            ),
+            on="timestamp",
+        )
+        .select(
+            "timestamp",
+            *[
+                column
+                for ticker in tickers
+                for column in (f"{ticker}_close", f"{ticker}_return")
+            ],
+        )
+        .sort("timestamp")
+    )

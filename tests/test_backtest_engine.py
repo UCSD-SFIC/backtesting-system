@@ -5,7 +5,6 @@ import pytest
 from engine.history import combine_ticker_histories
 from pipeline.backtest import backtest
 
-
 # Tests for the core portfolio calculation contract.
 
 

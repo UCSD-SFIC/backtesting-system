@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import polars as pl
 
 from analytics.metrics import summarize_performance
 from data.providers import DataProvider
 from engine.backtest_engine import BacktestEngine
-from engine.history import combine_ticker_histories
 from engine.weights import build_weight_frame
 from strategy.alpha import Alpha
 from visualization.plots import plot_backtest as _plot_backtest
@@ -46,7 +43,7 @@ def run_backtest(
 def summarize_backtest(
     backtest_df: pl.DataFrame,
     risk_free_rate: float = 0.02,
-    benchmark_ticker: Optional[str] = None,
+    benchmark_ticker: str | None = None,
 ) -> dict[str, float]:
     return summarize_performance(
         backtest_df,
@@ -57,7 +54,7 @@ def summarize_backtest(
 
 def plot_backtest(
     backtest_df: pl.DataFrame,
-    tickers: Optional[list[str]] = None,
+    tickers: list[str] | None = None,
     show_components: bool = True,
 ) -> None:
     _plot_backtest(backtest_df, tickers or [], show_components=show_components)

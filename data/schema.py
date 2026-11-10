@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import polars as pl
 
-
 # Every provider returns one frame per ticker with exactly these columns.
 # `timestamp` is the bar open time as UTC epoch milliseconds.
 OHLCV_SCHEMA: dict[str, pl.DataType] = {

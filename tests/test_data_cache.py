@@ -9,7 +9,6 @@ from data.cache import CachedDataProvider
 from data.providers import DataProvider, ValidatedDataProvider
 from data.validation import DataValidationError
 
-
 # Tests for the provider-agnostic parquet cache and validation wrappers.
 
 

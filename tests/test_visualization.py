@@ -6,7 +6,6 @@ from engine.history import combine_ticker_histories
 from pipeline.backtest import backtest
 from visualization.plots import create_backtest_figure
 
-
 matplotlib.use("Agg")
 
 

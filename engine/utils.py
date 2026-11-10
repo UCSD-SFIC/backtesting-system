@@ -1,5 +1,6 @@
-import polars as pl
 from time import time
+
+import polars as pl
 
 
 def validate_weights(weights_df, tickers):
@@ -35,7 +36,7 @@ def validate_weights(weights_df, tickers):
             + "\n".join(
                 [
                     f"Date: {date}, Total Weight: {weight:.3f}"
-                    for date, weight in zip(error_dates, error_weights)
+                    for date, weight in zip(error_dates, error_weights, strict=True)
                 ]
             )
         )
