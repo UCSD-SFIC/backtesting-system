@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import importlib
 import logging
 from abc import ABC, abstractmethod
 
@@ -69,9 +70,13 @@ class PolygonDataProvider(DataProvider):
     name = "polygon"
 
     def __init__(self, api_key: str):
-        from polygon import RESTClient
-
-        self._client = RESTClient(api_key)
+        try:
+            polygon = importlib.import_module("polygon")
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Polygon support requires: python -m pip install polygon-api-client"
+            ) from exc
+        self._client = polygon.RESTClient(api_key)
 
     def get_history(
         self,

@@ -143,3 +143,12 @@ def test_polygon_empty_response_raises():
 
     with pytest.raises(ValueError, match="No data returned for SPY"):
         provider.get_history(["SPY"], "day", "2024-01-01", "2024-01-31")
+
+
+def test_polygon_provider_explains_optional_install(monkeypatch):
+    def unavailable(name):
+        raise ModuleNotFoundError(name)
+
+    monkeypatch.setattr("data.providers.importlib.import_module", unavailable)
+    with pytest.raises(RuntimeError, match="pip install polygon-api-client"):
+        PolygonDataProvider("test-key")
