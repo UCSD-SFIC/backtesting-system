@@ -39,9 +39,48 @@ environment and set `POLYGON_API_KEY` before selecting it in the dashboard.
 4. Select a saved run to inspect its growth chart and metrics. You can mark
    a run as draft, reviewed, or superseded.
 
-The default templates are examples, not recommendations. A backtest uses
-historical data and can be affected by data gaps, corporate actions, and the
-assumptions in its configuration.
+Open **Guide & TOML** in the dashboard for a walkthrough of the full flow and
+an annotated template example. The default templates are examples, not
+recommendations. A backtest uses historical data and can be affected by data
+gaps, corporate actions, and the assumptions in its configuration.
+
+### How the TOML templates work
+
+Files in `configs/` are starting settings for a run. TOML uses `key = value`
+lines and named sections in square brackets. For example:
+
+```toml
+tickers = ["SPY", "BND"]
+start = 2024-01-01
+end = 2024-12-31
+
+[strategy]
+name = "fixed_weight"
+
+[strategy.params]
+weights = { SPY = 0.5, BND = 0.5 }
+rebalance = "monthly"
+
+[data]
+provider = "yfinance"
+```
+
+`tickers` names the assets to fetch. `start` and `end` set the test period.
+`strategy.name` selects the Python strategy; its `params` supply that
+strategy's settings. Weight values are fractions, so `0.5` is 50% and all
+weights together must equal `1.0`. `data.provider` selects the price source.
+The optional `[execution] cost_bps` sets simulated turnover cost; one basis
+point is 0.01%.
+
+The dashboard loads a TOML template and lets you edit common run settings,
+including dates, assets, data source, cost, portfolio weights, and indicator
+windows. The price interval, benchmark, and risk-free rate still come from
+the template; edit the TOML file to change those values. Changing a dashboard
+field affects the next run and its saved configuration; it does
+**not** change the TOML file. You can also edit a template in `configs/`
+directly to change its starting values. SMA and EMA indicator windows are
+editable in the dashboard. To add a new strategy type, see the customization
+section below.
 
 ### Scenarios
 

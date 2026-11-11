@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import inspect
 import math
 import os
 import re
@@ -20,7 +21,7 @@ import polars as pl
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from experiments import list_runs, load_frame, load_run, save_run, set_review_state
@@ -46,6 +47,7 @@ class RunOverrides(BaseModel):
     cost_bps: float | None = Field(default=None, ge=0, le=500)
     target_weights: dict[str, float] | None = Field(default=None, min_length=1, max_length=100)
     rebalance: Literal["monthly", "quarterly"] | None = None
+    strategy_params: dict[str, StrictInt] | None = Field(default=None, min_length=1, max_length=2)
 
     @model_validator(mode="after")
     def check_target_weights(self) -> RunOverrides:
@@ -55,6 +57,10 @@ class RunOverrides(BaseModel):
                 raise ValueError("target weights must be finite and nonnegative")
             if not math.isclose(sum(self.target_weights.values()), 1.0, abs_tol=1e-9):
                 raise ValueError("target weights must total 100%")
+        if self.strategy_params is not None and any(
+            value <= 0 or value > 10_000 for value in self.strategy_params.values()
+        ):
+            raise ValueError("strategy parameters must be positive whole numbers up to 10000")
         return self
 
 
@@ -134,6 +140,31 @@ def _load_run_config(path: Path, settings: RunOverrides | None = None):
         return load_config(path)
     base = load_config(path)
     params = dict(base.strategy.params)
+    if settings.strategy_params is not None:
+        allowed = {
+            "sma_crossover": {"short_window", "long_window"},
+            "ema_dip": {"ema_window", "regime_window"},
+        }.get(base.strategy.name, set())
+        if not set(settings.strategy_params) <= allowed:
+            raise ValueError("unsupported strategy parameters for this template")
+        params.update(settings.strategy_params)
+        window_pairs = {
+            "sma_crossover": ("short_window", "long_window"),
+            "ema_dip": ("ema_window", "regime_window"),
+        }
+        shorter, longer = window_pairs[base.strategy.name]
+        from strategy.registry import STRATEGIES
+
+        defaults = inspect.signature(STRATEGIES[base.strategy.name]).parameters
+        first = params.get(shorter, defaults[shorter].default)
+        second = params.get(longer, defaults[longer].default)
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            for value in (first, second)
+        ):
+            raise ValueError("indicator windows must be positive whole numbers")
+        if first >= second:
+            raise ValueError(f"{shorter} must be less than {longer}")
     if settings.target_weights is not None or settings.rebalance is not None:
         if base.strategy.name != "fixed_weight":
             raise ValueError("portfolio weights and schedule require a fixed-weight config")

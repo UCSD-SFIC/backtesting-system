@@ -3,7 +3,7 @@
 #   python -m pipeline.cli run --config configs/ema_dip.toml
 
 tickers = ["SPY", "SH"]
-timespan = "2hour"
+timespan = "day"
 start = 2025-01-01
 end = 2025-12-06
 benchmark = "SPY"

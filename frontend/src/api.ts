@@ -1,5 +1,6 @@
 export type RunConfig = {
   tickers: string[]
+  timespan: 'minute' | 'hour' | '2hour' | 'day' | 'week' | 'month'
   start: string
   end: string
   benchmark: string | null

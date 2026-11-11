@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from data.providers import DataProvider
 from experiments import save_run
 from experiments.catalog import RunCatalog
-from web.app import create_app
+from web.app import RunOverrides, _load_run_config, create_app
 
 
 def test_browser_lists_allowlisted_configs_and_launches_one(tmp_path: Path):
@@ -108,7 +108,8 @@ def test_browser_runs_configured_backtest_with_offline_provider(tmp_path: Path, 
     assert preview.status_code == 200
     assert preview.json()["config"]["strategy"]["name"] == "sma_crossover"
     response = client.post("/api/runs", json={"config_name": "sample.toml", "overrides": {
-        "cost_bps": 5, "start": "2024-01-03", "end": "2024-03-01"
+        "cost_bps": 5, "start": "2024-01-03", "end": "2024-03-01",
+        "strategy_params": {"short_window": 8, "long_window": 30},
     }})
     assert response.status_code == 200, response.text
     run_id = response.json()["run_id"]
@@ -116,11 +117,63 @@ def test_browser_runs_configured_backtest_with_offline_provider(tmp_path: Path, 
     saved = client.get(f"/api/runs/{run_id}").json()
     assert saved["config"]["execution"]["cost_bps"] == 5
     assert saved["config"]["start"] == "2024-01-03"
+    assert saved["config"]["strategy"]["params"]["short_window"] == 8
     with RunCatalog(catalog_url) as catalog:
         assert catalog.find_by_id(run_id) is not None
     assert client.patch(f"/api/runs/{run_id}/review", json={"state": "reviewed"}).status_code == 200
     with RunCatalog(catalog_url) as catalog:
         assert catalog.find_by_id(run_id).review_state == "reviewed"
+
+
+def test_indicator_windows_can_be_changed_for_one_run(tmp_path: Path):
+    config_path = tmp_path / "sample.toml"
+    config_path.write_text(
+        'tickers=["SPY","SH"]\nstart=2024-01-02\nend=2024-03-01\n'
+        '[strategy]\nname="sma_crossover"\n[strategy.params]\n'
+        'short_window=5\nlong_window=20\n',
+        encoding="utf-8",
+    )
+
+    changed = _load_run_config(
+        config_path, RunOverrides(strategy_params={"short_window": 8, "long_window": 30})
+    )
+    assert changed.strategy.params["short_window"] == 8
+    assert changed.strategy.params["long_window"] == 30
+    assert _load_run_config(config_path).strategy.params["short_window"] == 5
+
+    with pytest.raises(ValueError, match="supported strategy parameters"):
+        _load_run_config(config_path, RunOverrides(strategy_params={"unknown": 9}))
+    with pytest.raises(ValueError, match="short_window must be less"):
+        _load_run_config(
+            config_path, RunOverrides(strategy_params={"short_window": 30, "long_window": 8})
+        )
+    with pytest.raises(ValueError, match="positive whole numbers"):
+        RunOverrides(strategy_params={"short_window": -1})
+
+    config_path.write_text(
+        'tickers=["SPY","SH"]\nstart=2024-01-02\nend=2024-03-01\n'
+        '[strategy]\nname="ema_dip"\n[strategy.params]\n'
+        'ema_window=20\nregime_window=50\n',
+        encoding="utf-8",
+    )
+    ema = _load_run_config(
+        config_path, RunOverrides(strategy_params={"ema_window": 25, "regime_window": 60})
+    )
+    assert ema.strategy.params["regime_window"] == 60
+    with pytest.raises(ValueError, match="unsupported strategy parameters"):
+        _load_run_config(config_path, RunOverrides(strategy_params={"short_window": 8}))
+
+
+def test_indicator_override_uses_default_for_omitted_partner(tmp_path: Path):
+    config_path = tmp_path / "sample.toml"
+    config_path.write_text(
+        'tickers=["SPY","SH"]\nstart=2024-01-02\nend=2024-03-01\n'
+        '[strategy]\nname="sma_crossover"\n', encoding="utf-8"
+    )
+    updated = _load_run_config(config_path, RunOverrides(strategy_params={"short_window": 8}))
+    assert updated.strategy.params["short_window"] == 8
+    with pytest.raises(ValueError, match="short_window must be less"):
+        _load_run_config(config_path, RunOverrides(strategy_params={"short_window": 25}))
 
 
 def test_paper_rebalance_and_csv_download(tmp_path: Path):
