@@ -1,0 +1,19 @@
+# Generic example portfolio. Change its tickers and weights in the dashboard.
+tickers = ["SPY", "BND"]
+timespan = "day"
+start = 2024-01-01
+end = 2024-12-31
+benchmark = "SPY"
+
+[strategy]
+name = "fixed_weight"
+
+[strategy.params]
+weights = { SPY = 0.5, BND = 0.5 }
+rebalance = "monthly"
+
+[execution]
+cost_bps = 0
+
+[data]
+provider = "yfinance"
