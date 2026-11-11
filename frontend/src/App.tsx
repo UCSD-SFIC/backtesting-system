@@ -242,15 +242,18 @@ export function App() {
   }
 
   return <div className="app-shell">
+    <header className="topbar">
+      <div className="topbar-logo">SFIC <span>PORTFOLIO LAB</span></div>
+      <div className="topbar-status"><span className="status-dot" /> LOCAL RESEARCH</div>
+    </header>
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">S</span><span>SFIC<span className="brand-muted"> / Portfolio Lab</span></span></div>
       <p className="sidebar-caption">RESEARCH WORKSPACE</p>
       <nav aria-label="Main navigation">
         <button className={screen === 'backtests' ? 'nav-active' : ''} onClick={() => setScreen('backtests')}>↗ <span>Backtests</span></button>
         <button className={screen === 'scenarios' ? 'nav-active' : ''} onClick={() => setScreen('scenarios')}>◫ <span>Scenarios</span></button>
         <button className={screen === 'paper' ? 'nav-active' : ''} onClick={() => setScreen('paper')}>▤ <span>Paper rebalance</span></button>
       </nav>
-      <div className="sidebar-foot"><span className="status-dot" /> Local research app<br /><small>Historical simulation · paper only</small></div>
+      <div className="sidebar-foot">HISTORICAL SIMULATION<br /><small>Research and paper portfolios</small></div>
     </aside>
     <main className="content">
       <header className="page-header">
@@ -274,12 +277,12 @@ export function App() {
             </form>
           </section>
           <section className="card saved-card"><div className="card-header"><div><p className="eyebrow">02 / HISTORY</p><h2>Saved runs</h2></div><span className="count">{runs.length}</span></div>
-            <div className="run-list">{runs.length ? runs.map(run => <button key={run.run_id} className={`run-item ${selected?.run_id === run.run_id ? 'selected' : ''}`} onClick={() => setSelected(run)}><span><strong>{run.config.strategy?.name?.replaceAll('_', ' ') ?? 'Backtest'}</strong><small>{run.config.start} → {run.config.end}</small></span><span className="run-side"><b>{percent(run.metrics.total_return)}</b><small>{run.review_state}</small></span></button>) : <p className="empty">No saved runs yet. Start with a strategy template.</p>}</div>
+            <div className="run-list">{runs.length ? runs.map(run => <button key={run.run_id} className={`run-item ${selected?.run_id === run.run_id ? 'selected' : ''}`} onClick={() => setSelected(run)}><span><strong>{run.config.strategy?.name?.replaceAll('_', ' ') ?? 'Backtest'}</strong><small>{run.config.start} → {run.config.end}</small></span><span className="run-side"><b className={run.metrics.total_return < 0 ? 'value-negative' : 'value-positive'}>{percent(run.metrics.total_return)}</b><small>{run.review_state}</small></span></button>) : <p className="empty">No saved runs yet. Start with a strategy template.</p>}</div>
           </section>
         </div>
         <section className="card results-card"><div className="card-header"><div><p className="eyebrow">03 / RESULTS</p><h2>{selected ? 'Run analysis' : 'Choose a saved run'}</h2></div>{selected && <span className="soft-tag">{selected.run_id.slice(0, 8)}</span>}</div>
-          {selected ? <><div className="metric-grid">{['total_return', 'compounding_annual_return', 'sharpe_ratio', 'sortino_ratio', 'max_drawdown', 'annualized_volatility'].map(key => <div className="metric" key={key}><small>{metricLabel(key)}</small><strong>{['sharpe_ratio', 'sortino_ratio'].includes(key) ? (selected.metrics[key]?.toFixed(2) ?? '—') : percent(selected.metrics[key])}</strong></div>)}</div>
-            <div className="chart-wrap"><div className="chart-heading"><h3>Portfolio growth</h3><small>Historical simulation</small></div><svg viewBox="0 0 760 210" role="img" aria-label="Portfolio growth curve"><line x1="12" y1="198" x2="748" y2="198" stroke="#d9e3df" /><polyline points={chartPoints(equity)} fill="none" stroke="#0f775e" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" /></svg></div>
+          {selected ? <><div className="metric-grid">{['total_return', 'compounding_annual_return', 'sharpe_ratio', 'sortino_ratio', 'max_drawdown', 'annualized_volatility'].map(key => <div className="metric" key={key}><small>{metricLabel(key)}</small><strong className={key === 'annualized_volatility' ? undefined : selected.metrics[key] < 0 ? 'value-negative' : 'value-positive'}>{['sharpe_ratio', 'sortino_ratio'].includes(key) ? (selected.metrics[key]?.toFixed(2) ?? '—') : percent(selected.metrics[key])}</strong></div>)}</div>
+            <div className="chart-wrap"><div className="chart-heading"><h3>Portfolio growth</h3><small>Historical simulation</small></div><svg viewBox="0 0 760 210" role="img" aria-label="Portfolio growth curve"><line className="chart-axis" x1="12" y1="198" x2="748" y2="198" /><polyline className="chart-line" points={chartPoints(equity)} fill="none" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /></svg></div>
             <div className="result-actions"><label className="field compact"><span>Review state</span><select value={selected.review_state} onChange={event => void updateReview(event.target.value as RunRecord['review_state'])}><option value="draft">Draft</option><option value="reviewed">Reviewed</option><option value="superseded">Superseded</option></select></label><button className="secondary" onClick={() => setScreen('scenarios')}>Explore scenarios →</button><button className="secondary" onClick={() => setScreen('paper')}>Paper rebalance →</button></div>
             {selected.config.strategy.name === 'allocation' && <div className="walk-forward"><div className="card-header"><div><p className="eyebrow">04 / VALIDATION</p><h3>Out of sample study</h3></div></div><p className="helper">Choose training and test windows in trading bars. The study selects a sleeve on training history, then scores it on later unseen bars.</p><div className="action-row"><Numeric label="Training bars" value={trainSize} min={20} onChange={setTrainSize} /><Numeric label="Test bars" value={testSize} min={5} onChange={setTestSize} /><button className="secondary" disabled={busy} onClick={() => void studyOutOfSample()}>Run study</button></div>{walkForward && <><div className="summary-grid walk-summary">{Object.entries(walkForward.summary).map(([key, value]) => <div className="summary-tile" key={key}><small>{metricLabel(key)}</small><strong>{typeof value === 'number' ? Number(value).toFixed(2) : String(value)}</strong></div>)}</div><div className="table-scroll"><table><thead><tr><th>Chosen sleeve</th><th>Train return</th><th>Test return</th><th>Train through</th><th>Test begins</th></tr></thead><tbody>{walkForward.folds.map((fold, index) => <tr key={index}><td>{fold.selected}</td><td>{percent(fold.train_return)}</td><td>{percent(fold.test_return)}</td><td>{fold.train_end}</td><td>{fold.test_begin}</td></tr>)}</tbody></table></div></>}</div>}
           </> : <p className="empty">Select a run to see performance, drawdown, and its allocation workflow.</p>}</section>
