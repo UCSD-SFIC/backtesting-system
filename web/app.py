@@ -5,6 +5,9 @@
 from __future__ import annotations
 
 import csv
+import datetime as dt
+import math
+import os
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import asdict
@@ -15,20 +18,38 @@ from urllib.parse import urlsplit
 
 import polars as pl
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from experiments import list_runs, load_frame, load_run, save_run, set_review_state
+from experiments.catalog import RunCatalog
 from experiments.store import RunRecord
 from paper.rebalance import rebalance
 from research import compare_portfolios, historical_returns, scenario_sensitivity
+from web.walkforward import evaluate_saved_run
 
 Runner = Callable[[Path], str]
 
 
 class RunRequest(BaseModel):
     config_name: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9_.-]+\.toml$")
+    overrides: RunOverrides | None = None
+
+
+class RunOverrides(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start: dt.date | None = None
+    end: dt.date | None = None
+    tickers: list[str] | None = Field(default=None, min_length=1, max_length=100)
+    provider: Literal["yfinance", "polygon"] | None = None
+    cost_bps: float | None = Field(default=None, ge=0, le=500)
+    momentum_weight: float | None = Field(default=None, ge=0, le=1)
+    high_weight: float | None = Field(default=None, ge=0, le=1)
+    momentum_top_n: int | None = Field(default=None, ge=1, le=100)
+    high_top_n: int | None = Field(default=None, ge=1, le=100)
+    rebalance: Literal["monthly", "quarterly"] | None = None
 
 
 class ReviewRequest(BaseModel):
@@ -82,6 +103,12 @@ class CompareRequest(BaseModel):
         return self
 
 
+class WalkForwardRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    train_size: int = Field(ge=2, le=5000)
+    test_size: int = Field(ge=1, le=1000)
+
+
 def _check_tickers(tickers: Iterable[str]) -> None:
     if any(not re.fullmatch(r"[A-Z0-9.^-]{1,16}", ticker) for ticker in tickers):
         raise ValueError("tickers must be uppercase symbols of at most 16 characters")
@@ -100,16 +127,57 @@ def _paper_result(request: PaperRequest):
         raise HTTPException(400, str(exc)) from exc
 
 
-def _default_runner(path: Path, runs_dir: Path) -> str:
+def _load_run_config(path: Path, settings: RunOverrides | None = None):
+    from pipeline.config import load_config
+
+    if settings is None:
+        return load_config(path)
+    base = load_config(path)
+    params = dict(base.strategy.params)
+    allocation_fields = (
+        settings.momentum_weight, settings.high_weight, settings.momentum_top_n,
+        settings.high_top_n, settings.rebalance,
+    )
+    if any(value is not None for value in allocation_fields):
+        if base.strategy.name != "allocation":
+            raise ValueError("allocation settings require an allocation config")
+        sleeves = dict(params.get("sleeves", {"momentum": 0.7, "high_52_week": 0.3}))
+        if settings.momentum_weight is not None:
+            sleeves["momentum"] = settings.momentum_weight
+        if settings.high_weight is not None:
+            sleeves["high_52_week"] = settings.high_weight
+        params["sleeves"] = sleeves
+        counts = dict(params.get("sleeve_top_n", {}))
+        if settings.momentum_top_n is not None:
+            counts["momentum"] = settings.momentum_top_n
+        if settings.high_top_n is not None:
+            counts["high_52_week"] = settings.high_top_n
+        if counts:
+            params["sleeve_top_n"] = counts
+        if settings.rebalance is not None:
+            params["rebalance"] = settings.rebalance
+    overrides = {
+        "start": settings.start, "end": settings.end, "tickers": settings.tickers,
+        "data.provider": settings.provider, "execution.cost_bps": settings.cost_bps,
+        "strategy.params": params,
+    }
+    if settings.tickers is not None and base.universe_file:
+        raise ValueError("ticker override requires a config without universe_file")
+    return load_config(path, overrides)
+
+
+def _default_runner(
+    path: Path, runs_dir: Path, settings: RunOverrides | None = None,
+    catalog_url: str | None = None,
+) -> str:
     from data.factory import create_data_provider
     from engine.backtest_engine import BacktestEngine
     from engine.history import combine_ticker_histories
     from engine.weights import build_weight_frame
     from pipeline.backtest import summarize_backtest
-    from pipeline.config import load_config
     from strategy.registry import build_strategy
 
-    config = load_config(path)
+    config = _load_run_config(path, settings)
     provider = create_data_provider(
         config.data.provider,
         cache_dir=config.data.cache_dir,
@@ -153,6 +221,9 @@ def _default_runner(path: Path, runs_dir: Path) -> str:
         metrics=metrics,
         holdings=holdings_frame,
     )
+    if catalog_url:
+        with RunCatalog(catalog_url) as catalog:
+            catalog.upsert(record)
     return record.run_id
 
 
@@ -161,15 +232,23 @@ def create_app(
     runs_dir: str | Path = "runs",
     *,
     runner: Runner | None = None,
+    catalog_url: str | None = None,
+    frontend_dir: str | Path | None = None,
 ) -> FastAPI:
     """Create a local dashboard with fixed config names and run IDs."""
     configs = Path(config_dir)
     runs = Path(runs_dir)
+    catalog_url = catalog_url or os.getenv("BACKTEST_DATABASE_URL")
+    dashboard = Path(frontend_dir) if frontend_dir is not None else (
+        Path(__file__).resolve().parents[1] / "frontend" / "dist"
+    )
     launch = runner or (lambda path: _default_runner(path, runs))
     app = FastAPI(title="Backtesting research", version="0.1.0")
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"]
     )
+    if (dashboard / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=dashboard / "assets"), name="assets")
 
     @app.middleware("http")
     async def check_origin(request: Request, call_next):
@@ -182,19 +261,37 @@ def create_app(
         return await call_next(request)
 
     @app.get("/", response_class=HTMLResponse)
-    def home() -> str:
-        return _HTML
+    def home() -> Response:
+        if (dashboard / "index.html").is_file():
+            return FileResponse(dashboard / "index.html")
+        return HTMLResponse(_HTML)
 
     @app.get("/api/configs")
     def available_configs() -> dict[str, list[str]]:
         return {"configs": sorted(path.name for path in configs.glob("*.toml") if path.is_file())}
+
+    @app.get("/api/configs/{config_name}")
+    def config_detail(config_name: str) -> dict[str, object]:
+        if config_name not in available_configs()["configs"]:
+            raise HTTPException(404, "Unknown configuration")
+        try:
+            config = _load_run_config(configs / config_name)
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(400, "Configuration is invalid") from exc
+        return {"config": config.model_dump(mode="json")}
 
     @app.post("/api/runs")
     def run_backtest(request: RunRequest) -> dict[str, str]:
         if request.config_name not in available_configs()["configs"]:
             raise HTTPException(404, "Unknown configuration")
         try:
-            run_id = launch(configs / request.config_name)
+            run_id = (
+                launch(configs / request.config_name)
+                if runner is not None
+                else _default_runner(
+                    configs / request.config_name, runs, request.overrides, catalog_url
+                )
+            )
         except (ValueError, FileNotFoundError) as exc:
             raise HTTPException(400, "Configuration or market data is invalid") from exc
         return {"run_id": run_id}
@@ -221,10 +318,39 @@ def create_app(
             "growth": frame["overall_growth"].to_list(),
         }
 
+    @app.get("/api/runs/{run_id}/paper-input")
+    def paper_input(run_id: str) -> dict[str, object]:
+        try:
+            record = load_run(runs, run_id)
+            holdings = load_frame(record, "holdings")
+            history = load_frame(record, "price_history")
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(404, "Run or holdings not found") from exc
+        if holdings.is_empty():
+            raise HTTPException(400, "Run has no target holdings")
+        last_date = holdings["timestamp"].max()
+        latest = holdings.filter(pl.col("timestamp") == last_date)
+        weights = dict(zip(latest["ticker"].to_list(), latest["target_weight"].to_list(), strict=True))
+        final_prices = history.sort("timestamp").tail(1).to_dicts()[0]
+        prices = {
+            column.removesuffix("_close"): value
+            for column, value in final_prices.items()
+            if column.endswith("_close") and isinstance(value, (int, float))
+            and math.isfinite(value) and value > 0
+        }
+        if any(ticker not in prices for ticker in weights):
+            raise HTTPException(400, "Latest price missing for a target holding")
+        return {"target_weights": weights, "prices": prices,
+                "as_of": str(final_prices["timestamp"])}
+
     @app.patch("/api/runs/{run_id}/review")
     def review(run_id: str, request: ReviewRequest) -> dict[str, object]:
         try:
-            return _record_view(set_review_state(runs, run_id, request.state))
+            record = set_review_state(runs, run_id, request.state)
+            if catalog_url:
+                with RunCatalog(catalog_url) as catalog:
+                    catalog.upsert(record)
+            return _record_view(record)
         except (ValueError, FileNotFoundError) as exc:
             raise HTTPException(404, "Run not found") from exc
 
@@ -277,6 +403,17 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(400, "Invalid portfolio comparison") from exc
         return {"results": rows}
+
+    @app.post("/api/runs/{run_id}/walk-forward")
+    def walk_forward(run_id: str, request: WalkForwardRequest) -> dict[str, object]:
+        try:
+            record = load_run(runs, run_id)
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(404, "Run not found") from exc
+        try:
+            return evaluate_saved_run(record, request.train_size, request.test_size)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(400, "Saved run cannot be evaluated with these windows") from exc
 
     return app
 

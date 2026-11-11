@@ -1,3 +1,4 @@
+import datetime as dt
 from pathlib import Path
 
 import polars as pl
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from data.providers import DataProvider
 from experiments import save_run
+from experiments.catalog import RunCatalog
 from web.app import create_app
 
 
@@ -26,6 +28,16 @@ def test_browser_lists_allowlisted_configs_and_launches_one(tmp_path: Path):
         "run_id": "run-1"
     }
     assert launched == [configs / "sample.toml"]
+
+
+def test_server_uses_built_dashboard_when_present(tmp_path: Path):
+    frontend = tmp_path / "dist"
+    (frontend / "assets").mkdir(parents=True)
+    (frontend / "index.html").write_text("<h1>Dashboard build</h1>")
+    (frontend / "assets" / "app.js").write_text("window.appReady=true")
+    client = TestClient(create_app(tmp_path / "configs", tmp_path / "runs", frontend_dir=frontend))
+    assert "Dashboard build" in client.get("/").text
+    assert client.get("/assets/app.js").status_code == 200
 
 
 def test_browser_rejects_unknown_and_traversal_configs(tmp_path: Path):
@@ -90,12 +102,26 @@ def test_browser_runs_configured_backtest_with_offline_provider(tmp_path: Path, 
         'short_window=5\nlong_window=20\n',
         encoding="utf-8",
     )
-    client = TestClient(create_app(configs, tmp_path / "runs"))
+    catalog_url = f"sqlite:///{tmp_path / 'catalog.db'}"
+    client = TestClient(create_app(configs, tmp_path / "runs", catalog_url=catalog_url))
 
-    response = client.post("/api/runs", json={"config_name": "sample.toml"})
+    preview = client.get("/api/configs/sample.toml")
+    assert preview.status_code == 200
+    assert preview.json()["config"]["strategy"]["name"] == "sma_crossover"
+    response = client.post("/api/runs", json={"config_name": "sample.toml", "overrides": {
+        "cost_bps": 5, "start": "2024-01-03", "end": "2024-03-01"
+    }})
     assert response.status_code == 200, response.text
     run_id = response.json()["run_id"]
     assert len(client.get(f"/api/runs/{run_id}/equity").json()["growth"]) == 49
+    saved = client.get(f"/api/runs/{run_id}").json()
+    assert saved["config"]["execution"]["cost_bps"] == 5
+    assert saved["config"]["start"] == "2024-01-03"
+    with RunCatalog(catalog_url) as catalog:
+        assert catalog.find_by_id(run_id) is not None
+    assert client.patch(f"/api/runs/{run_id}/review", json={"state": "reviewed"}).status_code == 200
+    with RunCatalog(catalog_url) as catalog:
+        assert catalog.find_by_id(run_id).review_state == "reviewed"
 
 
 def test_paper_rebalance_and_csv_download(tmp_path: Path):
@@ -116,6 +142,55 @@ def test_paper_rebalance_and_csv_download(tmp_path: Path):
     assert download.headers["content-type"].startswith("text/csv")
     assert "ticker,current_shares,target_shares" in download.text
     assert client.post("/api/paper-rebalance", json={**payload, "cash": -1}).status_code == 422
+
+
+def test_saved_run_supplies_paper_targets_and_latest_prices(tmp_path: Path):
+    runs = tmp_path / "runs"
+    record = save_run(
+        runs,
+        config={"strategy": {"name": "allocation"}},
+        price_history=pl.DataFrame({
+            "timestamp": [1, 2], "A_close": [10.0, 11.0], "B_close": [20.0, 21.0],
+            "C_close": [30.0, 31.0],
+        }),
+        result=pl.DataFrame({"timestamp": [1, 2], "overall_growth": [1.0, 1.1]}),
+        metrics={"total_return": 0.1},
+        holdings=pl.DataFrame({
+            "timestamp": [1, 1], "ticker": ["A", "B"], "target_weight": [0.6, 0.4],
+        }),
+    )
+    client = TestClient(create_app(tmp_path / "configs", runs))
+    response = client.get(f"/api/runs/{record.run_id}/paper-input")
+    assert response.status_code == 200
+    assert response.json()["target_weights"] == {"A": 0.6, "B": 0.4}
+    assert response.json()["prices"] == {"A": 11.0, "B": 21.0, "C": 31.0}
+    assert response.json()["as_of"] == "2"
+
+
+def test_saved_allocation_run_can_be_evaluated_out_of_sample(tmp_path: Path):
+    dates = [dt.datetime(2024, 1, 1) + dt.timedelta(days=i) for i in range(25)]
+    history = pl.DataFrame({
+        "timestamp": dates,
+        "A_close": [10.0 + i for i in range(25)],
+        "B_close": [20.0 + i / 10 for i in range(25)],
+    })
+    record = save_run(
+        tmp_path / "runs",
+        config={"start": "2024-01-06", "end": "2024-01-25", "tickers": ["A", "B"],
+                "benchmark": "A", "strategy": {"name": "allocation", "params": {
+                    "lookback": 3, "skip": 0, "high_window": 3, "top_n": 1, "min_price": 0.0,
+                    "sleeve_top_n": {"momentum": 1, "high_52_week": 1},
+                }}, "execution": {"cost_bps": 0}},
+        price_history=history,
+        result=pl.DataFrame({"timestamp": dates, "overall_growth": [1.0] * 25}),
+        metrics={"total_return": 0.0},
+    )
+    client = TestClient(create_app(tmp_path / "configs", tmp_path / "runs"))
+    response = client.post(f"/api/runs/{record.run_id}/walk-forward", json={
+        "train_size": 5, "test_size": 3,
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["summary"]["folds"] >= 1
 
 
 def test_scenario_comparison_rejects_invalid_weights(tmp_path: Path):

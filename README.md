@@ -1,7 +1,30 @@
-# Python Backtesting
+# Backtesting System
 
-This script runs backtesting with `yfinance` as the default data source.
-Polygon is also supported.
+A local browser dashboard for historical strategy research, portfolio scenarios,
+and paper rebalance recommendations. Python runs the backtests behind the web
+interface. `yfinance` is the default data source; Polygon is also supported.
+
+## Open the dashboard
+
+Install Python dependencies and Node.js/npm, then start the app from the repo root:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+./scripts/start-dashboard.sh
+```
+
+Open `http://127.0.0.1:8000`. The script installs frontend packages on first
+use, builds the React dashboard, and starts the local FastAPI server. Choose a
+strategy template, adjust dates and allocation settings, run a backtest, then
+inspect the chart and saved results. The Scenarios screen compares portfolio
+combinations; the Paper rebalance screen imports `ticker,shares` CSV holdings
+and downloads a recommendation CSV. No Python editing is needed for these flows.
+
+The dashboard is designed for use on your own computer. Saved runs and price
+history are stored locally. Set `BACKTEST_DATABASE_URL` to a SQLite or
+PostgreSQL SQLAlchemy URL to also index run metadata; install the optional
+`postgres` dependencies for PostgreSQL.
 
 ## Architecture
 
@@ -15,15 +38,17 @@ The project is split into modular layers:
 - `visualization`: result plotting
 - `paper`: whole-share paper rebalance recommendations and CSV exports
 - `research`: portfolio comparisons and scenario sensitivity tables
-- `experiments`: versioned local run artifacts and review states
-- `web`: local browser dashboard and API
+- `experiments`: versioned local run artifacts, review states, and optional SQL catalog
+- `web`: FastAPI backend for the React/TypeScript dashboard
+- `frontend`: the browser interface
 
 ## Provider Switching
 
 Set `DATA_PROVIDER` in `.env`:
 
 - `DATA_PROVIDER=yfinance` (default, requires `yfinance` package)
-- `DATA_PROVIDER=polygon` (requires `POLYGON_API_KEY`)
+- `DATA_PROVIDER=polygon` (requires `POLYGON_API_KEY` and an optional install:
+  `.venv/bin/python -m pip install polygon-api-client`)
 
 Build providers with `data.create_data_provider(name)`. It wraps the raw
 provider so every source behaves the same way:
@@ -169,14 +194,10 @@ python -m pipeline.cli scenario-analysis --portfolios portfolios.json --shocks s
 scenario names to assumed per-ticker returns in decimals. The paper packet
 contains suggested whole-share changes and estimated costs, never orders.
 
-For a local browser interface:
-
-```bash
-uvicorn web.app:app --host 127.0.0.1 --port 8000
-```
-
-Open `http://127.0.0.1:8000` to run saved configurations and review results.
-The dashboard is intended for use on your own computer.
+For frontend development, run `npm run dev --prefix frontend` alongside the
+Python server. Vite proxies `/api` to port 8000. The dashboard also includes
+an out-of-sample study for saved allocation runs: it selects among predefined
+allocation candidates on training windows and scores them on later test windows.
 
 ## Development checks
 
@@ -186,6 +207,7 @@ CI runs these on every pull request; run them locally before pushing:
 ruff check .                                   # lint (add --fix for safe autofixes)
 pyright                                        # type check
 python -m pytest --cov --cov-fail-under=80     # tests with coverage gate
+npm test --prefix frontend && npm run build --prefix frontend
 python -m benchmarks.bench_engine              # engine timings, 100 tickers x 5 years
 ```
 

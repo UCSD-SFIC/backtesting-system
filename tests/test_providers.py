@@ -122,11 +122,11 @@ def _polygon_provider(aggs) -> tuple[PolygonDataProvider, _FakePolygonClient]:
 
 
 def test_polygon_paginates_and_normalizes():
-    from polygon.rest.models import Agg
-
     aggs = [
-        Agg(open=1, high=2, low=0.5, close=1.5, volume=10, vwap=1.2, timestamp=2, transactions=3),
-        Agg(open=1, high=2, low=0.5, close=1.0, volume=10, vwap=1.2, timestamp=1, transactions=3),
+        {"open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10,
+         "vwap": 1.2, "timestamp": 2, "transactions": 3},
+        {"open": 1, "high": 2, "low": 0.5, "close": 1.0, "volume": 10,
+         "vwap": 1.2, "timestamp": 1, "transactions": 3},
     ]
     provider, client = _polygon_provider(aggs)
 
