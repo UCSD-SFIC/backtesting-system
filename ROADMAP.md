@@ -12,15 +12,19 @@ itself stays a research and paper-trading tool.
 
 ## Where we are now
 
-**Stage: allocation backtester with paper and scenario research in progress.**
+**Stage: local dashboard release.** The browser is the main interface; the
+Python CLI remains useful for automation and research scripts.
 
 - The project can fetch data from yfinance or Polygon.
 - It has an engine, strategy interface, EMA/SMA examples, metrics, charts, and
   automated tests and CI.
 - It can rank a large stock universe, combine strategy sleeves, and model
   scheduled rebalances with simulated costs.
-- Paper rebalance, scenario research, saved runs, and a local browser interface
-  have initial implementations; their integration and validation are underway.
+- The React/TypeScript dashboard starts backtests, displays saved results,
+  compares portfolio scenarios, runs allocation out-of-sample studies, and
+  exports paper rebalance recommendations from imported CSV holdings.
+- FastAPI serves the dashboard and API. Runs are stored as local artifacts,
+  with an optional SQLite/PostgreSQL metadata catalog.
 
 | Original task | Status |
 | --- | --- |
@@ -29,7 +33,12 @@ itself stays a research and paper-trading tool.
 | 3. Testing, CI, and profiling | Complete for the current engine; extend checks as features grow |
 | 4. Backtest metrics | Complete |
 
-## Phase 1: Make the foundation reliable
+The included 50-stock universe represents current large caps. Reproducing
+historical SFIC allocations accurately still requires a dated membership
+dataset and the exact assumptions from the original research. The app accepts
+dated membership CSVs so that data can be added without changing the engine.
+
+## Phase 1: Make the foundation reliable — complete
 
 Finish the existing work before adding a UI.
 
@@ -41,7 +50,7 @@ Finish the existing work before adding a UI.
 **Done when:** anyone can clone the project, configure a run, and get the same
 tested result on their computer.
 
-## Phase 2: Build the allocation backtester
+## Phase 2: Build the allocation backtester — complete for supplied data
 
 Support the reference quant-allocation strategy.
 
@@ -55,7 +64,7 @@ Support the reference quant-allocation strategy.
 **Done when:** the project can reproduce the allocation-style research from the
 existing notebooks using tested application code rather than notebook cells.
 
-## Phase 3: Add paper rebalancing and reproducible experiments
+## Phase 3: Add paper rebalancing and reproducible experiments — implemented
 
 Turn a backtest result into a useful paper-portfolio workflow.
 
@@ -75,7 +84,7 @@ Turn a backtest result into a useful paper-portfolio workflow.
 compare it with past simulated runs, scenarios, and candidate portfolio
 combinations. No broker connection is involved.
 
-## Phase 4: Make it easy to use
+## Phase 4: Make it easy to use — implemented locally
 
 Build a small app around the proven engine.
 
@@ -87,7 +96,8 @@ Build a small app around the proven engine.
 - Add simple review states such as draft, reviewed, and superseded.
 
 **Done when:** a non-programmer can use a browser to run and inspect a paper
-backtest without writing Python.
+backtest without writing Python. The current local dashboard supports this
+workflow; broader deployment and collaborative accounts are future decisions.
 
 ## Technology plan
 

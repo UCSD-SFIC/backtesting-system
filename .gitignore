@@ -7,3 +7,6 @@ history_cache
 uv.lock
 .coverage
 benchmark.json
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
