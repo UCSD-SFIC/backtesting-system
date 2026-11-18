@@ -29,6 +29,7 @@ from experiments.catalog import RunCatalog
 from experiments.store import RunRecord
 from paper.rebalance import rebalance
 from research import compare_portfolios, historical_returns, scenario_sensitivity
+from terminal.api import ServiceFactory, install_terminal_api
 
 Runner = Callable[[Path], str]
 
@@ -248,6 +249,7 @@ def create_app(
     runner: Runner | None = None,
     catalog_url: str | None = None,
     frontend_dir: str | Path | None = None,
+    terminal_service: ServiceFactory | None = None,
 ) -> FastAPI:
     """Create a local dashboard with fixed config names and run IDs."""
     configs = Path(config_dir)
@@ -273,6 +275,9 @@ def create_app(
                 if parsed.scheme != request.url.scheme or parsed.netloc != request.headers.get("host"):
                     return JSONResponse({"detail": "Cross-origin request rejected"}, status_code=403)
         return await call_next(request)
+
+    # Research-terminal data endpoints (/api/companies, /api/financial-metrics).
+    install_terminal_api(app, terminal_service)
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> Response:

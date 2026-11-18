@@ -121,8 +121,27 @@ Run `python -m pipeline.cli --help` for paper-rebalance and scenario-analysis
 options. If the virtual environment is not activated, use `.venv/bin/python`
 in place of `python`.
 
+## Research terminal data API
+
+The backend also serves company research data for the SFIC Research Terminal:
+company search, an overview, daily prices, and income, balance sheet and cash
+flow statements built from SEC filings, each number with its source filing
+and refresh time.
+
+```bash
+cp .env.example .env    # then set SEC_USER_AGENT to your name and email
+.venv/bin/python -m terminal COST AAPL    # live check from the command line
+```
+
+With the dashboard running, try
+<http://127.0.0.1:8000/api/companies?q=costco> and
+<http://127.0.0.1:8000/api/companies/COST/financials?statement=income&period=quarterly>.
+Endpoints, response format, and how other workstreams should reuse the shared
+SEC client are in [docs/terminal-data-api.md](docs/terminal-data-api.md).
+
 ## Data, storage, and architecture
 
+- `terminal/` is the research-terminal data backend (SEC data, statements, prices, provenance).
 - `data/` fetches, validates, and caches normalized market history as Parquet.
 - `strategy/` contains the common `Alpha` interface and public example strategies.
 - `engine/` applies target weights, schedule changes, and simulated costs.

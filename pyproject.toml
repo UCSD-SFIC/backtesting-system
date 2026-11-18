@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",
+    "httpx>=0.27",
     "matplotlib>=3.8",
     "polars>=1.0",
     "pydantic>=2.0",
@@ -39,7 +40,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["analytics", "data", "engine", "experiments", "paper", "pipeline", "research", "strategy", "visualization", "web"]
+source = ["analytics", "data", "engine", "experiments", "paper", "pipeline", "research", "strategy", "terminal", "visualization", "web"]
 omit = ["pipeline/run_*.py"]
 
 [tool.coverage.report]
@@ -55,7 +56,7 @@ extend-exclude = [".venv", "history_cache"]
 select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.pyright]
-include = ["analytics", "data", "engine", "experiments", "paper", "pipeline", "research", "strategy", "visualization", "web", "benchmarks"]
+include = ["analytics", "data", "engine", "experiments", "paper", "pipeline", "research", "strategy", "terminal", "visualization", "web", "benchmarks"]
 pythonVersion = "3.10"
 typeCheckingMode = "basic"
 venvPath = "."
